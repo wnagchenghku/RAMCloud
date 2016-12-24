@@ -1448,7 +1448,7 @@ struct RocksteadyPrepForMigration {
         RequestCommonWithId common;
         uint64_t tableId;
         uint64_t startKeyHash;
-        uint64_t lastKeyHash;
+        uint64_t endKeyHash;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;

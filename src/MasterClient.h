@@ -77,6 +77,9 @@ class MasterClient {
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
+    static uint64_t rocksteadyPrepForMigration(Context* context,
+            ServerId sourceServerId, uint64_t tableId,
+            uint64_t startKeyHash, uint64_t endKeyHash);
     static void splitAndMigrateIndexlet(Context* context,
             ServerId currentOwnerId, ServerId newOwnerId,
             uint64_t tableId, uint8_t indexId,
@@ -267,6 +270,22 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveIndexEntryRpc);
+};
+
+/**
+ * Encapsulates the state of a MasterClient::rocksteadyPrepForMigration
+ * request, allowing it to execute asynchronously.
+ */
+class RocksteadyPrepForMigrationRpc : public ServerIdRpcWrapper {
+  public:
+    RocksteadyPrepForMigrationRpc(Context* context,
+            ServerId sourceServerId, uint64_t tableId,
+            uint64_t firstKeyHash, uint64_t endKeyHash);
+    ~RocksteadyPrepForMigrationRpc() {}
+    uint64_t wait();
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RocksteadyPrepForMigrationRpc);
 };
 
 /**

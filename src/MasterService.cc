@@ -218,6 +218,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::RemoveIndexEntry, MasterService,
                         &MasterService::removeIndexEntry>(rpc);
             break;
+        case WireFormat::RocksteadyPrepForMigration::opcode:
+            callHandler<WireFormat::RocksteadyPrepForMigration, MasterService,
+                        &MasterService::rocksteadyPrepForMigration>(rpc);
+            break;
         case WireFormat::SplitAndMigrateIndexlet::opcode:
             callHandler<WireFormat::SplitAndMigrateIndexlet, MasterService,
                         &MasterService::splitAndMigrateIndexlet>(rpc);
@@ -2039,6 +2043,42 @@ MasterService::requestRemoveIndexEntries(Object& object)
             rpcs[keyIndex-1]->wait();
         }
     }
+}
+
+void MasterService::rocksteadyPrepForMigration(
+        const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
+        WireFormat::RocksteadyPrepForMigration::Response* respHdr,
+        Rpc* rpc)
+{
+    const uint64_t tableId = reqHdr->tableId;
+    const uint64_t startKeyHash = reqHdr->startKeyHash;
+    const uint64_t endKeyHash = reqHdr->endKeyHash;
+
+    bool found = tabletManager.getTablet(tableId, startKeyHash,
+                         endKeyHash, NULL);
+    if (!found) {
+        LOG(WARNING, "Migration request for a tablet this master does not own:"
+                " tablet [0x%lx, 0x%lx] in table %lu", startKeyHash,
+                endKeyHash, tableId);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
+    }
+
+    bool changedState = tabletManager.changeState(tableId, startKeyHash,
+                                endKeyHash, TabletManager::NORMAL,
+                                TabletManager::LOCKED_FOR_MIGRATION);
+    if (!changedState) {
+        LOG(WARNING, "Failed to lock tablet for migration: "
+                "tablet [0x%lx, 0x%lx] in table %lu", startKeyHash,
+                endKeyHash, tableId);
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+        return;
+    }
+    LogProtector::wait(context, Transport::ServerRpc::APPEND_ACTIVITY);
+
+    respHdr->safeVersion = objectManager.getSafeVersion();
+    respHdr->common.status = STATUS_OK;
+    return;
 }
 
 /**

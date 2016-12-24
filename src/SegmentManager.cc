@@ -1193,4 +1193,9 @@ SegmentManager::freeUnreferencedSegments()
     }
 }
 
+uint64_t
+SegmentManager::getSafeVersion() {
+    return safeVersion;
+}
+
 } // namespace

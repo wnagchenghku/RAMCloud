@@ -103,6 +103,7 @@ class ObjectManager : public LogEntryHandlers,
                         Buffer* removedObjBuffer = NULL);
     Status commitWrite(PreparedOp& op, Log::Reference& refToPreparedOp,
                         Buffer* removedObjBuffer = NULL);
+    uint64_t getSafeVersion();
 
     /**
      * The following three methods are used when multiple log entries

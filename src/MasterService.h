@@ -261,6 +261,10 @@ class MasterService : public Service {
                 Rpc* rpc);
     void requestInsertIndexEntries(Object& object);
     void requestRemoveIndexEntries(Object& object);
+    void rocksteadyPrepForMigration(
+                const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
+                WireFormat::RocksteadyPrepForMigration::Response* respHdr,
+                Rpc* rpc);
     void splitAndMigrateIndexlet(
                 const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr,

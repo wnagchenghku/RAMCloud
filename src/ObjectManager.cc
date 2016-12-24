@@ -3291,4 +3291,10 @@ ObjectManager::replace(HashTableBucketLock& lock, Key& key,
     return false;
 }
 
+uint64_t
+ObjectManager::getSafeVersion()
+{
+    return segmentManager.getSafeVersion();
+}
+
 } //enamespace RAMCloud

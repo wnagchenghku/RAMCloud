@@ -134,6 +134,7 @@ class SegmentManager {
     uint64_t allocateVersion();
     bool raiseSafeVersion(uint64_t minimum);
     int getMemoryUtilization();
+    uint64_t getSafeVersion();
 
 #ifdef TESTING
     /// Used to mock the return value of getSegmentUtilization() when set to

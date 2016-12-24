@@ -760,6 +760,40 @@ RemoveIndexEntryRpc::handleIndexDoesntExist()
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
+uint64_t
+MasterClient::rocksteadyPrepForMigration(
+        Context* context, ServerId sourceServerId, uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash)
+{
+    RocksteadyPrepForMigrationRpc rpc(context, sourceServerId, tableId,
+            startKeyHash, endKeyHash);
+    return rpc.wait();
+}
+
+RocksteadyPrepForMigrationRpc::RocksteadyPrepForMigrationRpc(
+        Context* context, ServerId sourceServerId, uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash)
+    : ServerIdRpcWrapper(context, sourceServerId,
+            sizeof(WireFormat::RocksteadyPrepForMigration::Response))
+{
+    WireFormat::RocksteadyPrepForMigration::Request* reqHdr(
+            allocHeader<WireFormat::RocksteadyPrepForMigration>(
+                    sourceServerId));
+    reqHdr->tableId = tableId;
+    reqHdr->startKeyHash = startKeyHash;
+    reqHdr->endKeyHash = endKeyHash;
+    send();
+}
+
+uint64_t
+RocksteadyPrepForMigrationRpc::wait()
+{
+    waitAndCheckErrors();
+    const WireFormat::RocksteadyPrepForMigration::Response* respHdr(
+            getResponseHeader<WireFormat::RocksteadyPrepForMigration>());
+    return respHdr->safeVersion;
+}
+
 /**
  * Request that a master (with id currentOwnerId) split a given indexlet at
  * splitKey and migrate the second indexlet resulting from this split to server
