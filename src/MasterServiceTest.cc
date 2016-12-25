@@ -4628,10 +4628,18 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
 
 TEST_F(MasterServiceTest, rocksteadyPrepForMigration) {
     service->tabletManager.addTablet(99, 31, 891, TabletManager::NORMAL);
+    ramcloud->write(1, "0", 1, "vegito", 6, NULL, NULL, false);
+    ramcloud->write(1, "1", 1, "gogeta", 6, NULL, NULL, false);
 
+    uint64_t safeVersionExpected = 3;
     EXPECT_THROW(MasterClient::rocksteadyPrepForMigration(&context,
             masterServer->serverId, 99, 900, 1098),
-            TabletDoesntExistException);
+            UnknownTabletException);
+
+    uint64_t beforePrepEpoch = LogProtector::getCurrentEpoch();
+    EXPECT_EQ(safeVersionExpected, MasterClient::rocksteadyPrepForMigration(
+            &context, masterServer->serverId, 99, 31, 891));
+    EXPECT_GT(LogProtector::getCurrentEpoch(), beforePrepEpoch);
 }
 
 class MasterRecoverTest : public ::testing::Test {
