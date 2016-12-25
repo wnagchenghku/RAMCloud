@@ -4626,6 +4626,14 @@ TEST_F(MasterServiceTest, recover_unsuccessful) {
     EXPECT_EQ(0U, service->masterTableMetadata.find(124)->stats.keyHashCount);
 }
 
+TEST_F(MasterServiceTest, rocksteadyPrepForMigration) {
+    service->tabletManager.addTablet(99, 31, 891, TabletManager::NORMAL);
+
+    EXPECT_THROW(MasterClient::rocksteadyPrepForMigration(&context,
+            masterServer->serverId, 99, 900, 1098),
+            TabletDoesntExistException);
+}
+
 class MasterRecoverTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
