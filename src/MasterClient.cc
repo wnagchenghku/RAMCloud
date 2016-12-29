@@ -760,6 +760,70 @@ RemoveIndexEntryRpc::handleIndexDoesntExist()
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
+uint32_t
+MasterClient::rocksteadyMigrationPullHashes(
+        Context* context, ServerId sourceServerId, uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentKeyHash,
+        uint32_t numRequestedHashes, uint64_t* lastReturnedHash,
+        Buffer* response)
+{
+    RocksteadyMigrationPullHashesRpc rpc(context, sourceServerId, tableId,
+            startKeyHash, endKeyHash, currentKeyHash, numRequestedHashes,
+            response);
+    return rpc.wait(lastReturnedHash);
+}
+
+RocksteadyMigrationPullHashesRpc::RocksteadyMigrationPullHashesRpc(
+        Context* context, ServerId sourceServerId, uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentKeyHash,
+        uint32_t numRequestedHashes, Buffer* response)
+    : ServerIdRpcWrapper(context, sourceServerId,
+            sizeof(WireFormat::RocksteadyMigrationPullHashes::Response),
+            response)
+{
+    WireFormat::RocksteadyMigrationPullHashes::Request* reqHdr(
+            allocHeader<WireFormat::RocksteadyMigrationPullHashes>(
+                    sourceServerId));
+    reqHdr->tableId = tableId;
+    reqHdr->startKeyHash = startKeyHash;
+    reqHdr->endKeyHash = endKeyHash;
+    reqHdr->currentKeyHash = currentKeyHash;
+    reqHdr->numRequestedHashes = numRequestedHashes;
+    send();
+}
+
+uint32_t
+RocksteadyMigrationPullHashesRpc::wait(uint64_t* lastReturnedHash)
+{
+    waitAndCheckErrors();
+    const WireFormat::RocksteadyMigrationPullHashes::Response* respHdr(
+            getResponseHeader<WireFormat::RocksteadyMigrationPullHashes>());
+    *lastReturnedHash = respHdr->lastReturnedHash;
+    return respHdr->numReturnedHashes;
+}
+
+/**
+ * Request that a master check if it can migrate a given tablet to the caller,
+ * and return state required by the caller to service writes on the tablet
+ * under migration.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param sourceServerId
+ *      Identifier of the source of the migration.
+ * \param tableId
+ *      Identifier of the table the tablet under migration is part of.
+ * \param startKeyHash
+ *      Lowest key hash in the tablet range to be migrated.
+ * \param endKeyHash
+ *      Highest key hash in the tablet range to be migrated.
+ *
+ * \return
+ *      The safe version number on the source after it has locked the tablet
+ *      for migration and allowed any in-progress writes on the tablet to
+ *      complete. With this, the destination can serve writes on objects
+ *      that have not been migrated yet.
+ */
 uint64_t
 MasterClient::rocksteadyPrepForMigration(
         Context* context, ServerId sourceServerId, uint64_t tableId,
@@ -770,6 +834,11 @@ MasterClient::rocksteadyPrepForMigration(
     return rpc.wait();
 }
 
+/**
+ * Constructor for RocksteadyPrepForMigrationRpc: initiates an RPC in the same
+ * way as #MasterClient::rocksteadyPrepForMigration, but returns immediately
+ * once the RPC has been initiated without waiting for it to complete.
+ */
 RocksteadyPrepForMigrationRpc::RocksteadyPrepForMigrationRpc(
         Context* context, ServerId sourceServerId, uint64_t tableId,
         uint64_t startKeyHash, uint64_t endKeyHash)
@@ -785,6 +854,19 @@ RocksteadyPrepForMigrationRpc::RocksteadyPrepForMigrationRpc(
     send();
 }
 
+/**
+ * Wait for a rocksteadyPrepForMigration RPC to complete.
+ *
+ * \return
+ *      The safe version number that the caller can use to safely service
+ *      writes on objects belonging to the tablet under migration that
+ *      have not been migrated yet.
+ *
+ * \throw UnknownTabletException
+ *      The source does not own the tablet requested for.
+ * \throw InternalError
+ *      The source failed to lock the tablet for migration.
+ */
 uint64_t
 RocksteadyPrepForMigrationRpc::wait()
 {

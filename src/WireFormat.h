@@ -130,7 +130,8 @@ enum Opcode {
     TX_REQUEST_ABORT            = 78,
     TX_HINT_FAILED              = 79,
     ROCKSTEADY_PREP_FOR_MIGRATION = 80,
-    ILLEGAL_RPC_TYPE            = 81, // 1 + the highest legitimate Opcode
+    ROCKSTEADY_MIGRATION_PULL_HASHES = 81,
+    ILLEGAL_RPC_TYPE            = 82, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1438,6 +1439,24 @@ struct RenewLease {
     struct Response {
         ResponseCommon common;
         ClientLease lease;
+    } __attribute__((packed));
+};
+
+struct RocksteadyMigrationPullHashes {
+    static const Opcode opcode = ROCKSTEADY_MIGRATION_PULL_HASHES;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t tableId;
+        uint64_t startKeyHash;
+        uint64_t endKeyHash;
+        uint64_t currentKeyHash;
+        uint32_t numRequestedHashes;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t lastReturnedHash;
+        uint32_t numReturnedHashes;
     } __attribute__((packed));
 };
 

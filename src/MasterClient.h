@@ -77,6 +77,11 @@ class MasterClient {
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
+    static uint32_t rocksteadyMigrationPullHashes(Context* context,
+            ServerId sourceServerId, uint64_t tableId,
+            uint64_t startKeyHash, uint64_t endKeyHash,
+            uint64_t currentKeyHash, uint32_t numRequestedHashes,
+            uint64_t* lastReturnedHash, Buffer* response);
     static uint64_t rocksteadyPrepForMigration(Context* context,
             ServerId sourceServerId, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash);
@@ -273,6 +278,24 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
 };
 
 /**
+ * Encapsulates the state of a MasterClient::rocksteadyMigrationPullHashes
+ * request, allowing it to execute asynchronously.
+ */
+class RocksteadyMigrationPullHashesRpc : public ServerIdRpcWrapper {
+  public:
+    RocksteadyMigrationPullHashesRpc(Context* context,
+            ServerId sourceServerId, uint64_t tableId,
+            uint64_t startKeyHash, uint64_t endKeyHash,
+            uint64_t currentKeyHash, uint32_t numRequestedHashes,
+            Buffer* response);
+    ~RocksteadyMigrationPullHashesRpc() {}
+    uint32_t wait(uint64_t* lastReturnedHash);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RocksteadyMigrationPullHashesRpc);
+};
+
+/**
  * Encapsulates the state of a MasterClient::rocksteadyPrepForMigration
  * request, allowing it to execute asynchronously.
  */
@@ -280,7 +303,7 @@ class RocksteadyPrepForMigrationRpc : public ServerIdRpcWrapper {
   public:
     RocksteadyPrepForMigrationRpc(Context* context,
             ServerId sourceServerId, uint64_t tableId,
-            uint64_t firstKeyHash, uint64_t endKeyHash);
+            uint64_t startKeyHash, uint64_t endKeyHash);
     ~RocksteadyPrepForMigrationRpc() {}
     uint64_t wait();
 

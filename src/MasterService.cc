@@ -218,6 +218,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::RemoveIndexEntry, MasterService,
                         &MasterService::removeIndexEntry>(rpc);
             break;
+        case WireFormat::RocksteadyMigrationPullHashes::opcode:
+            callHandler<WireFormat::RocksteadyMigrationPullHashes,
+            MasterService, &MasterService::rocksteadyMigrationPullHashes>(rpc);
+            break;
         case WireFormat::RocksteadyPrepForMigration::opcode:
             callHandler<WireFormat::RocksteadyPrepForMigration, MasterService,
                         &MasterService::rocksteadyPrepForMigration>(rpc);
@@ -2045,6 +2049,23 @@ MasterService::requestRemoveIndexEntries(Object& object)
     }
 }
 
+void MasterService::rocksteadyMigrationPullHashes(
+        const WireFormat::RocksteadyMigrationPullHashes::Request* reqHdr,
+        WireFormat::RocksteadyMigrationPullHashes::Response* respHdr,
+        Rpc* rpc)
+{
+    ;
+}
+
+/**
+ * Top level server method to handle the ROCKSTEADY_PREP_FOR_MIGRATION request.
+ *
+ * This method first checks to see if it owns the requested tablet. If it
+ * does, it locks the tablet for migration, allows any pending writes on the
+ * tablet to complete, and returns the safe version number on the source.
+ *
+ * \copydetails Service::ping
+ */
 void MasterService::rocksteadyPrepForMigration(
         const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
         WireFormat::RocksteadyPrepForMigration::Response* respHdr,
@@ -2054,6 +2075,7 @@ void MasterService::rocksteadyPrepForMigration(
     const uint64_t startKeyHash = reqHdr->startKeyHash;
     const uint64_t endKeyHash = reqHdr->endKeyHash;
 
+    // First check if this server owns the tablet being requested for.
     bool found = tabletManager.getTablet(tableId, startKeyHash,
                          endKeyHash, NULL);
     if (!found) {
@@ -2064,6 +2086,8 @@ void MasterService::rocksteadyPrepForMigration(
         return;
     }
 
+    // Lock the tablet for migration and allow any in progress writes on it
+    // to complete.
     bool changedState = tabletManager.changeState(tableId, startKeyHash,
                                 endKeyHash, TabletManager::NORMAL,
                                 TabletManager::LOCKED_FOR_MIGRATION);
@@ -2076,6 +2100,8 @@ void MasterService::rocksteadyPrepForMigration(
     }
     LogProtector::wait(context, Transport::ServerRpc::APPEND_ACTIVITY);
 
+    // Return the safe version number so that the destination may serve
+    // writes on objects that have not been migrated yet.
     respHdr->safeVersion = objectManager.getSafeVersion();
     respHdr->common.status = STATUS_OK;
     return;

@@ -123,6 +123,8 @@ opcodeSymbol(uint32_t opcode)
         case TX_HINT_FAILED:               return "TX_HINT_FAILED";
         case ROCKSTEADY_PREP_FOR_MIGRATION:
                                     return "ROCKSTEADY_PREP_FOR_MIGRATION";
+        case ROCKSTEADY_MIGRATION_PULL_HASHES:
+                                    return "ROCKSTEADY_MIGRATION_PULL_HASHES";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 
