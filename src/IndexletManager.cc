@@ -648,7 +648,7 @@ IndexletManager::lookupIndexKeys(
     }
     Indexlet* indexlet = &mapIter->second;
 
-    Lock indexletLock(indexlet->indexletMutex);
+    //Lock indexletLock(indexlet->indexletMutex);
     indexletMapLock.unlock();
 
     // We want to use lower_bound() instead of find() because the firstKey

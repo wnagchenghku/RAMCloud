@@ -428,8 +428,10 @@ PRIVATE:
          *      The BtreeEntry at the index
          */
         inline BtreeEntry
-        getAt(uint16_t index, Buffer *keyOutBuffer = NULL) const
+        getAt(uint16_t index, Buffer *keyOutBuffer = NULL, Buffer* keyBuffer = NULL) const
         {
+          if (!keyBuffer)
+            keyBuffer = this->keyBuffer;
           assert(index < Node::slotuse);
 
           uint32_t start = keysBeginOffset + keys[index].relOffset;
@@ -1846,13 +1848,13 @@ PUBLIC:
         NodeId childId = m_rootId;
         while(!n->isLeaf()) {
             const InnerNode *inner = static_cast<const InnerNode*>(n);
-            uint16_t slot = findEntryGE(inner, key);
+            uint16_t slot = findEntryGE(inner, key, &buffer);
             childId = inner->getChildAt(slot);
             n = readNode(childId, &buffer);
         }
 
         const LeafNode *leaf = static_cast<const LeafNode*>(n);
-        uint16_t slot = findEntryGE(leaf, key);
+        uint16_t slot = findEntryGE(leaf, key, &buffer);
 
         // If the slot returned by find_upper() is beyond the last element
         // in use, return end()
@@ -2043,7 +2045,7 @@ PRIVATE:
      *      Index within the Node
      */
     inline uint16_t
-    findEntryGE(const Node *n, BtreeEntry entry) const
+    findEntryGE(const Node *n, BtreeEntry entry, Buffer* keyBuffer = NULL) const
     {
         if ( useBinarySearch ) {
             if (n->slotuse == 0)
@@ -2052,7 +2054,7 @@ PRIVATE:
             uint16_t lo = 0, hi = n->slotuse;
             while (lo < hi) {
                 uint16_t mid = uint16_t((lo + hi) >> 1);
-                if (key_lessequal(entry, n->getAt(mid))) {
+                if (key_lessequal(entry, n->getAt(mid, NULL, keyBuffer))) {
                     hi = mid; // key <= mid
                 } else {
                     lo = uint16_t(mid + 1); // key > mid
@@ -2062,14 +2064,14 @@ PRIVATE:
             // verify result using simple linear search
             if (selfverify) {
                 uint16_t i = 0;
-                while (i < n->slotuse && key_less(n->getAt(i), entry)) ++i;
+                while (i < n->slotuse && key_less(n->getAt(i, NULL, keyBuffer), entry)) ++i;
                 assert(i == lo);
             }
 
             return lo;
         } else {
             uint16_t lo = 0;
-            while (lo < n->slotuse && key_less(n->getAt(lo), entry)) ++lo;
+            while (lo < n->slotuse && key_less(n->getAt(lo, NULL, keyBuffer), entry)) ++lo;
             return lo;
         }
     }
