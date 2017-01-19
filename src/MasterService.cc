@@ -2054,7 +2054,63 @@ void MasterService::rocksteadyMigrationPullHashes(
         WireFormat::RocksteadyMigrationPullHashes::Response* respHdr,
         Rpc* rpc)
 {
-    ;
+    const uint64_t tableId = reqHdr->tableId;
+    const uint64_t startKeyHash = reqHdr->startKeyHash;
+    const uint64_t endKeyHash = reqHdr->endKeyHash;
+    const uint64_t currentKeyHash = reqHdr->currentKeyHash;
+    const uint32_t numRequestedBytes = reqHdr->numRequestedBytes;
+
+    uint32_t numReturnedBytes = 0;
+    uint64_t lastReturnedHash = 0;
+    Buffer* response = rpc->replyPayload;
+
+    // TODO: A spinlock is acquired inside getTablet. Can/Should this call be
+    // elliminated?
+    //
+    // Since the destination now owns the tablet, the next two checks can be
+    // performed only once before walking the hash table (unlike
+    // ObjectManager::readHashes). Requests to delete this tablet should be
+    // handled by the destination.
+    //
+    // Performing these checks here rather than before every hash table lookup
+    // helps avoid contention between multiple in progress pull hashes rpcs.
+    TabletManager::Tablet sourceTablet;
+    bool found = tabletManager.getTablet(tableId, currentKeyHash,
+                         &sourceTablet);
+    if (!found) {
+        LOG(WARNING, "Migration Pull Hashes request for a tablet this master"
+                " does not posses: requested region [0x%lx, 0x%lx], table %lu,"
+                " and hash %lx", startKeyHash, endKeyHash, tableId,
+                currentKeyHash);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
+    }
+
+    if (sourceTablet.state != TabletManager::LOCKED_FOR_MIGRATION) {
+        LOG(WARNING, "Migration Pull Hashes request for a tablet that was"
+                " not previously locked for migration: requested region"
+                " [0x%lx, 0x%lx], table %lu, and hash %lx", startKeyHash,
+                endKeyHash, tableId, currentKeyHash);
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+        return;
+    }
+
+    if (currentKeyHash < startKeyHash || currentKeyHash > endKeyHash) {
+        LOG(WARNING, "Migration Pull Hashes request on an out of bounds hash"
+                ": requested region [0x%lx, 0x%lx], table %lu, hash 0x%lx",
+                startKeyHash, endKeyHash, tableId, currentKeyHash);
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+        return;
+    }
+
+    numReturnedBytes = objectManager.rocksteadyMigrationPullHashes(
+                            tableId, startKeyHash, endKeyHash, currentKeyHash,
+                            numRequestedBytes, response, &lastReturnedHash);
+
+    respHdr->lastReturnedHash = lastReturnedHash;
+    respHdr->numReturnedBytes = numReturnedBytes;
+
+    return;
 }
 
 /**

@@ -1451,12 +1451,12 @@ struct RocksteadyMigrationPullHashes {
         uint64_t startKeyHash;
         uint64_t endKeyHash;
         uint64_t currentKeyHash;
-        uint32_t numRequestedHashes;
+        uint32_t numRequestedBytes;
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
         uint64_t lastReturnedHash;
-        uint32_t numReturnedHashes;
+        uint32_t numReturnedBytes;
     } __attribute__((packed));
 };
 

@@ -104,6 +104,10 @@ class ObjectManager : public LogEntryHandlers,
     Status commitWrite(PreparedOp& op, Log::Reference& refToPreparedOp,
                         Buffer* removedObjBuffer = NULL);
     uint64_t getSafeVersion();
+    uint32_t rocksteadyMigrationPullHashes(uint64_t tableId,
+                uint64_t startKeyHash, uint64_t endKeyHash,
+                uint64_t currentKeyHash, uint32_t numRequestedBytes,
+                Buffer* response, uint64_t* lastReturnedHash);
 
     /**
      * The following three methods are used when multiple log entries

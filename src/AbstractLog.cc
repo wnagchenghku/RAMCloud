@@ -270,9 +270,13 @@ AbstractLog::getMemoryStats(PerfStats* stats)
  *      The type of the entry being looked up is returned here.
  */
 LogEntryType
-AbstractLog::getEntry(Reference reference, Buffer& outBuffer)
+AbstractLog::getEntry(Reference reference,
+            Buffer& outBuffer,
+            bool zeroCopy,
+            uint32_t* entryLength)
 {
-    return reference.getEntry(&segmentManager->getAllocator(), &outBuffer);
+    return reference.getEntry(&segmentManager->getAllocator(), &outBuffer,
+            NULL, zeroCopy, entryLength);
 }
 
 /**

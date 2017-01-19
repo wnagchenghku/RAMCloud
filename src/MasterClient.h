@@ -80,7 +80,7 @@ class MasterClient {
     static uint32_t rocksteadyMigrationPullHashes(Context* context,
             ServerId sourceServerId, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
-            uint64_t currentKeyHash, uint32_t numRequestedHashes,
+            uint64_t currentKeyHash, uint32_t numRequestedBytes,
             uint64_t* lastReturnedHash, Buffer* response);
     static uint64_t rocksteadyPrepForMigration(Context* context,
             ServerId sourceServerId, uint64_t tableId,
@@ -286,7 +286,7 @@ class RocksteadyMigrationPullHashesRpc : public ServerIdRpcWrapper {
     RocksteadyMigrationPullHashesRpc(Context* context,
             ServerId sourceServerId, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
-            uint64_t currentKeyHash, uint32_t numRequestedHashes,
+            uint64_t currentKeyHash, uint32_t numRequestedBytes,
             Buffer* response);
     ~RocksteadyMigrationPullHashesRpc() {}
     uint32_t wait(uint64_t* lastReturnedHash);

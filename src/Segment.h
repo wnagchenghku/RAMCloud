@@ -242,7 +242,9 @@ class Segment {
 
         LogEntryType getEntry(SegletAllocator* allocator,
                               Buffer* buffer,
-                              uint32_t* lengthWithMetadata = NULL);
+                              uint32_t* lengthWithMetadata = NULL,
+                              bool zeroCopy = false,
+                              uint32_t* entryLength = NULL);
 
         /**
          * Compare references for equality. Returns true if equal, else false.
@@ -289,15 +291,20 @@ class Segment {
     void close();
     void appendToBuffer(Buffer& buffer,
                         uint32_t offset,
-                        uint32_t length) const;
+                        uint32_t length,
+                        bool zeroCopy = false) const;
     uint32_t appendToBuffer(Buffer& buffer);
     uint32_t getOffset(Reference reference);
     LogEntryType getEntry(uint32_t offset,
                           Buffer* buffer,
-                          uint32_t* lengthWithMetadata = NULL);
+                          uint32_t* lengthWithMetadata = NULL,
+                          bool zeroCopy = false,
+                          uint32_t* entryLength = NULL);
     LogEntryType getEntry(Reference reference,
                           Buffer* buffer,
-                          uint32_t* lengthWithMetadata = NULL);
+                          uint32_t* lengthWithMetadata = NULL,
+                          bool zeroCopy = false,
+                          uint32_t* entryLength = NULL);
     static LogEntryType getEntry(const void* buffer,
                                  uint32_t* entryDataLength = NULL,
                                  uint32_t* lengthWithMetadata = NULL);

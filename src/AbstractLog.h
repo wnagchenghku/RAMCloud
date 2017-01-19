@@ -113,7 +113,9 @@ class AbstractLog {
     void getMetrics(ProtoBuf::LogMetrics& m);
     void getMemoryStats(PerfStats* stats);
     LogEntryType getEntry(Reference reference,
-                          Buffer& outBuffer);
+                          Buffer& outBuffer,
+                          bool zeroCopy = false,
+                          uint32_t* entryLength = NULL);
     uint64_t getSegmentId(Reference reference);
     bool hasSpaceFor(uint64_t objectSize);
     bool segmentExists(uint64_t segmentId);

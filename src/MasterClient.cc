@@ -764,11 +764,11 @@ uint32_t
 MasterClient::rocksteadyMigrationPullHashes(
         Context* context, ServerId sourceServerId, uint64_t tableId,
         uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentKeyHash,
-        uint32_t numRequestedHashes, uint64_t* lastReturnedHash,
+        uint32_t numRequestedKB, uint64_t* lastReturnedHash,
         Buffer* response)
 {
     RocksteadyMigrationPullHashesRpc rpc(context, sourceServerId, tableId,
-            startKeyHash, endKeyHash, currentKeyHash, numRequestedHashes,
+            startKeyHash, endKeyHash, currentKeyHash, numRequestedKB,
             response);
     return rpc.wait(lastReturnedHash);
 }
@@ -776,7 +776,7 @@ MasterClient::rocksteadyMigrationPullHashes(
 RocksteadyMigrationPullHashesRpc::RocksteadyMigrationPullHashesRpc(
         Context* context, ServerId sourceServerId, uint64_t tableId,
         uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentKeyHash,
-        uint32_t numRequestedHashes, Buffer* response)
+        uint32_t numRequestedBytes, Buffer* response)
     : ServerIdRpcWrapper(context, sourceServerId,
             sizeof(WireFormat::RocksteadyMigrationPullHashes::Response),
             response)
@@ -788,7 +788,7 @@ RocksteadyMigrationPullHashesRpc::RocksteadyMigrationPullHashesRpc(
     reqHdr->startKeyHash = startKeyHash;
     reqHdr->endKeyHash = endKeyHash;
     reqHdr->currentKeyHash = currentKeyHash;
-    reqHdr->numRequestedHashes = numRequestedHashes;
+    reqHdr->numRequestedBytes = numRequestedBytes;
     send();
 }
 
@@ -799,7 +799,7 @@ RocksteadyMigrationPullHashesRpc::wait(uint64_t* lastReturnedHash)
     const WireFormat::RocksteadyMigrationPullHashes::Response* respHdr(
             getResponseHeader<WireFormat::RocksteadyMigrationPullHashes>());
     *lastReturnedHash = respHdr->lastReturnedHash;
-    return respHdr->numReturnedHashes;
+    return respHdr->numReturnedBytes;
 }
 
 /**

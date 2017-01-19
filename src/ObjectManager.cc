@@ -3297,4 +3297,56 @@ ObjectManager::getSafeVersion()
     return segmentManager.getSafeVersion();
 }
 
+uint32_t
+ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
+                uint64_t startKeyHash, uint64_t endKeyHash,
+                uint64_t currentKeyHash, uint32_t numRequestedBytes,
+                Buffer* response, uint64_t* lastReturnedHash)
+{
+    uint32_t bufferOffset = 0;
+    uint32_t numReturnedBytes = 0;
+
+    bool zeroCopy = true;
+
+    for (; (bufferOffset < numRequestedBytes) ||
+            (currentKeyHash > endKeyHash); currentKeyHash++) {
+        uint32_t logEntryLength = 0;
+
+        objectMap.prefetchBucket(currentKeyHash);
+        HashTableBucketLock lock(*this, currentKeyHash);
+
+        HashTable::Candidates candidates;
+        objectMap.lookup(currentKeyHash, candidates);
+        for(; !candidates.isDone(); candidates.next()) {
+            Log::Reference candidateRef(candidates.getReference());
+            LogEntryType type = log.getEntry(candidateRef, *response,
+                    zeroCopy, &logEntryLength);
+
+            if (type != LOG_ENTRY_TYPE_OBJ) {
+                continue;
+            }
+
+            Object object(*response, bufferOffset, logEntryLength);
+
+            if (object.getPKHash() != currentKeyHash ||
+                object.getTableId() != tableId) {
+                response->truncate(bufferOffset);
+                continue;
+            }
+
+            bufferOffset += logEntryLength;
+            if (bufferOffset >= numRequestedBytes) {
+                // TODO How should currentKeyHash be updated in such a
+                // situation?
+                *lastReturnedHash = currentKeyHash;
+                return numReturnedBytes = bufferOffset;
+            }
+        }
+    }
+
+    *lastReturnedHash = currentKeyHash - 1;
+
+    return numReturnedBytes = bufferOffset;
+}
+
 } //enamespace RAMCloud

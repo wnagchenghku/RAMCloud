@@ -379,7 +379,10 @@ uint64_t bufferAppendCount;
  *      Offset+length must not exceed the current size of the segment.
  */
 void
-Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
+Segment::appendToBuffer(Buffer& buffer,
+            uint32_t offset,
+            uint32_t length,
+            bool zeroCopy) const
 {
     uint32_t currentOffset = offset;
     uint32_t currentLength = length;
@@ -395,7 +398,11 @@ Segment::appendToBuffer(Buffer& buffer, uint32_t offset, uint32_t length) const
                     segletSize * segletBlocks.size(), currentOffset);
         }
 
-        buffer.append(contigPointer, contigBytes);
+        if (!zeroCopy) {
+            buffer.append(contigPointer, contigBytes);
+        } else {
+            buffer.appendExternal(contigPointer, contigBytes);
+        }
 
         currentOffset += contigBytes;
         currentLength -= contigBytes;
@@ -482,7 +489,11 @@ Segment::getOffset(Reference reference)
  *      The entry's type as specified when it was appended (LogEntryType).
  */
 LogEntryType
-Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
+Segment::getEntry(uint32_t offset,
+            Buffer* buffer,
+            uint32_t* lengthWithMetadata,
+            bool zeroCopy,
+            uint32_t* entryLength)
 {
     EntryHeader header = getEntryHeader(offset);
     uint32_t entryDataOffset = offset +
@@ -494,12 +505,16 @@ Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
         header.getLengthBytes());
 
     if (buffer != NULL)
-        appendToBuffer(*buffer, entryDataOffset, entryDataLength);
+        appendToBuffer(*buffer, entryDataOffset, entryDataLength, zeroCopy);
 
     if (lengthWithMetadata != NULL) {
         *lengthWithMetadata = entryDataLength +
                               sizeof32(header) +
                               header.getLengthBytes();
+    }
+
+    if (entryLength != NULL) {
+        *entryLength = entryDataLength;
     }
 
     return header.getType();
@@ -526,9 +541,12 @@ Segment::getEntry(uint32_t offset, Buffer* buffer, uint32_t* lengthWithMetadata)
 LogEntryType
 Segment::getEntry(Reference reference,
                   Buffer* buffer,
-                  uint32_t* lengthWithMetadata)
+                  uint32_t* lengthWithMetadata,
+                  bool zeroCopy,
+                  uint32_t* entryLength)
 {
-    return getEntry(getOffset(reference), buffer, lengthWithMetadata);
+    return getEntry(getOffset(reference), buffer, lengthWithMetadata,
+        zeroCopy, entryLength);
 }
 
 /**
@@ -962,7 +980,9 @@ Segment::getReference(uint32_t offset)
 LogEntryType
 Segment::Reference::getEntry(SegletAllocator* allocator,
                              Buffer* buffer,
-                             uint32_t* lengthWithMetadata)
+                             uint32_t* lengthWithMetadata,
+                             bool zeroCopy,
+                             uint32_t* entryLength)
 {
     uint32_t segletSize = allocator->getSegletSize();
 
@@ -999,12 +1019,23 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
                     prefetch(
                         reinterpret_cast<void*>(reference + fullHeaderLength),
                             dataLength);
-                buffer->append(
-                    reinterpret_cast<void*>(reference + fullHeaderLength),
-                    dataLength);
+
+                if (!zeroCopy) {
+                    buffer->append(
+                        reinterpret_cast<void*>(reference + fullHeaderLength),
+                        dataLength);
+                } else {
+                    buffer->appendExternal(
+                        reinterpret_cast<void*>(reference + fullHeaderLength),
+                        dataLength);
+                }
             }
             if (lengthWithMetadata != NULL)
                 *lengthWithMetadata = fullLength;
+
+            if (entryLength != NULL)
+                *entryLength = dataLength;
+
             return header->getType();
         }
     }
@@ -1015,7 +1046,8 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
     TEST_LOG("Discontiguous entry");
     LogSegment* segment = allocator->getOwnerSegment(
         reinterpret_cast<void*>(reference));
-    return segment->getEntry(*this, buffer, lengthWithMetadata);
+    return segment->getEntry(*this, buffer, lengthWithMetadata, zeroCopy,
+        entryLength);
 }
 
 } // namespace
