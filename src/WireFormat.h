@@ -1447,16 +1447,28 @@ struct RocksteadyMigrationPullHashes {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommonWithId common;
-        uint64_t tableId;
-        uint64_t startKeyHash;
-        uint64_t endKeyHash;
-        uint64_t currentKeyHash;
-        uint32_t numRequestedBytes;
+        uint64_t tableId;              // Table that the tablet belongs to.
+        uint64_t startKeyHash;         // Start of tablet's hash space.
+        uint64_t endKeyHash;           // End of tablet's hash space.
+        uint64_t currentHTBucket;      // Hash table bucket that the recipient
+                                       // should start iterating from.
+        uint64_t currentHTBucketEntry; // Entry within above bucket that the
+                                       // recipient should start iterating from.
+        uint64_t endHTBucket;          // Hash table bucket at which the
+                                       // recipient should stop iterating at
+                                       // provided the number of bytes in the
+                                       // response is <= numRequestedBytes.
+        uint32_t numRequestedBytes;    // Maximum number of bytes that the
+                                       // recipient should return.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint64_t lastReturnedHash;
-        uint32_t numReturnedBytes;
+        uint64_t nextHTBucket;         // The value of currentHTBucket to be
+                                       // sent on the next request.
+        uint64_t nextHTBucketEntry;    // The value of currentHTBucketEntry to
+                                       // be sent on the next request.
+        uint32_t numReturnedBytes;     // Number of bytes returned by the
+                                       // recipient.
     } __attribute__((packed));
 };
 
@@ -1465,13 +1477,15 @@ struct RocksteadyPrepForMigration {
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         RequestCommonWithId common;
-        uint64_t tableId;
-        uint64_t startKeyHash;
-        uint64_t endKeyHash;
+        uint64_t tableId;      // Table that the tablet belongs to.
+        uint64_t startKeyHash; // Lower bound on the tablet's hash space.
+        uint64_t endKeyHash;   // Upper bound on the tablet's hash space.
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
-        uint64_t safeVersion;
+        uint64_t safeVersion;  // Safe version on the recipient after the tablet
+                               // was locked for migration.
+        uint64_t numHTBuckets; // Number of hash table buckets on the recipient.
     } __attribute__((packed));
 };
 
