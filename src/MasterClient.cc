@@ -760,22 +760,65 @@ RemoveIndexEntryRpc::handleIndexDoesntExist()
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
+/**
+ * Request that a master migrate a fraction of a tablet.
+ *
+ * \param context
+ *      Overall information about this RAMCloud server.
+ * \param sourceServerId
+ *      Identifier of the source of the migration.
+ * \param tableId
+ *      Identifier of the table the tablet under migration is part of.
+ * \param startKeyHash
+ *      Lowest key hash in the hash range to be migrated.
+ * \param endKeyHash
+ *      Highest key hash in the hash range to be migrated.
+ * \param currentHTBucket
+ *      Hash table bucket the migration source should start scanning from.
+ * \param currentHTBucketEntry
+ *      Entry within currentHTBucket the migration source should start
+ *      scanning from.
+ * \param endHTBucket
+ *      Hash table bucket the migration source should stop scanning at
+ *      provided the amount of data in the response is < numRequestedBytes.
+ * \param numRequestedBytes
+ *      The number of bytes that the migration source should reply with.
+ *
+ * \param[out] nextHTBucket
+ *      The value of currentHTBucket to be used on the next such request.
+ * \param[out] nextHTBucketEntry
+ *      The value of currentHTBucketEntry to be used on the next such
+ *      request.
+ * \param[out] response
+ *      The buffer to append the rpc reply to.
+ *
+ * \return
+ *      The number of bytes returned by the source of the migration.
+ */
 uint32_t
 MasterClient::rocksteadyMigrationPullHashes(
         Context* context, ServerId sourceServerId, uint64_t tableId,
-        uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentKeyHash,
-        uint32_t numRequestedKB, uint64_t* lastReturnedHash,
-        Buffer* response)
+        uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentHTBucket,
+        uint64_t currentHTBucketEntry, uint64_t endHTBucket,
+        uint32_t numRequestedBytes, uint64_t* nextHTBucket,
+        uint64_t* nextHTBucketEntry, Buffer* response)
 {
     RocksteadyMigrationPullHashesRpc rpc(context, sourceServerId, tableId,
-            startKeyHash, endKeyHash, currentKeyHash, numRequestedKB,
-            response);
-    return rpc.wait(lastReturnedHash);
+            startKeyHash, endKeyHash, currentHTBucket, currentHTBucketEntry,
+            endHTBucket, numRequestedBytes, response);
+    return rpc.wait(nextHTBucket, nextHTBucketEntry);
 }
 
+/**
+ * Constructor for RocksteadyMigrationPullHashesRpc: initiates an RPC in the
+ * same way as #MasterClient::rocksteadyMigrationPullHashes, but returns
+ * immediately once the RPC has been initiated without waiting for it to
+ * complete.
+ */
 RocksteadyMigrationPullHashesRpc::RocksteadyMigrationPullHashesRpc(
         Context* context, ServerId sourceServerId, uint64_t tableId,
-        uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentKeyHash,
+        uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentHTBucket,
+        uint64_t currentHTBucketEntry, uint64_t endHTBucket,
         uint32_t numRequestedBytes, Buffer* response)
     : ServerIdRpcWrapper(context, sourceServerId,
             sizeof(WireFormat::RocksteadyMigrationPullHashes::Response),
@@ -787,18 +830,42 @@ RocksteadyMigrationPullHashesRpc::RocksteadyMigrationPullHashesRpc(
     reqHdr->tableId = tableId;
     reqHdr->startKeyHash = startKeyHash;
     reqHdr->endKeyHash = endKeyHash;
-    reqHdr->currentKeyHash = currentKeyHash;
+    reqHdr->currentHTBucket = currentHTBucket;
+    reqHdr->currentHTBucketEntry = currentHTBucketEntry;
+    reqHdr->endHTBucket = endHTBucket;
     reqHdr->numRequestedBytes = numRequestedBytes;
     send();
 }
 
+/**
+ * Wait for a rocksteadyMigrationPullHashes RPC to complete.
+ *
+ * \param[out] nextHTBucket
+ *      The value of currentHTBucket to be used on the next
+ *      rocksteadyMigrationPullHashes RPC.
+ * \param[out] nextHTBucketEntry
+ *      The value of currentHTBucketEntry to be used on the next
+ *      rocksteadyMigrationPullHashes RPC.
+ *
+ * \return
+ *      The number of bytes returned by the recipient of the RPC.
+ *
+ * \throw UnknownTabletException
+ *      The recipient does not own the requested tablet.
+ * \throw InternalError
+ *      The tablet is not locked for migration on the recipient, or
+ *      the source has fewer buckets than currentHTBucket or
+ *      endHTBucket.
+ */
 uint32_t
-RocksteadyMigrationPullHashesRpc::wait(uint64_t* lastReturnedHash)
+RocksteadyMigrationPullHashesRpc::wait(uint64_t* nextHTBucket,
+        uint64_t* nextHTBucketEntry)
 {
     waitAndCheckErrors();
     const WireFormat::RocksteadyMigrationPullHashes::Response* respHdr(
             getResponseHeader<WireFormat::RocksteadyMigrationPullHashes>());
-    *lastReturnedHash = respHdr->lastReturnedHash;
+    *nextHTBucket = respHdr->nextHTBucket;
+    *nextHTBucketEntry = respHdr->nextHTBucketEntry;
     return respHdr->numReturnedBytes;
 }
 
@@ -818,6 +885,9 @@ RocksteadyMigrationPullHashesRpc::wait(uint64_t* lastReturnedHash)
  * \param endKeyHash
  *      Highest key hash in the tablet range to be migrated.
  *
+ * \param[out] numHTBuckets
+ *      The number of hash table buckets on the recipient.
+ *
  * \return
  *      The safe version number on the source after it has locked the tablet
  *      for migration and allowed any in-progress writes on the tablet to
@@ -827,11 +897,11 @@ RocksteadyMigrationPullHashesRpc::wait(uint64_t* lastReturnedHash)
 uint64_t
 MasterClient::rocksteadyPrepForMigration(
         Context* context, ServerId sourceServerId, uint64_t tableId,
-        uint64_t startKeyHash, uint64_t endKeyHash)
+        uint64_t startKeyHash, uint64_t endKeyHash, uint64_t* numHTBuckets)
 {
     RocksteadyPrepForMigrationRpc rpc(context, sourceServerId, tableId,
             startKeyHash, endKeyHash);
-    return rpc.wait();
+    return rpc.wait(numHTBuckets);
 }
 
 /**
@@ -857,6 +927,9 @@ RocksteadyPrepForMigrationRpc::RocksteadyPrepForMigrationRpc(
 /**
  * Wait for a rocksteadyPrepForMigration RPC to complete.
  *
+ * \param[out] numHTBuckets
+ *      The number of hash table buckets on the recipient.
+ *
  * \return
  *      The safe version number that the caller can use to safely service
  *      writes on objects belonging to the tablet under migration that
@@ -868,11 +941,12 @@ RocksteadyPrepForMigrationRpc::RocksteadyPrepForMigrationRpc(
  *      The source failed to lock the tablet for migration.
  */
 uint64_t
-RocksteadyPrepForMigrationRpc::wait()
+RocksteadyPrepForMigrationRpc::wait(uint64_t* numHTBuckets)
 {
     waitAndCheckErrors();
     const WireFormat::RocksteadyPrepForMigration::Response* respHdr(
             getResponseHeader<WireFormat::RocksteadyPrepForMigration>());
+    *numHTBuckets = respHdr->numHTBuckets;
     return respHdr->safeVersion;
 }
 
