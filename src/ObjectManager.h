@@ -104,10 +104,13 @@ class ObjectManager : public LogEntryHandlers,
     Status commitWrite(PreparedOp& op, Log::Reference& refToPreparedOp,
                         Buffer* removedObjBuffer = NULL);
     uint64_t getSafeVersion();
+    uint64_t getNumHashTableBuckets();
     uint32_t rocksteadyMigrationPullHashes(uint64_t tableId,
                 uint64_t startKeyHash, uint64_t endKeyHash,
-                uint64_t currentKeyHash, uint32_t numRequestedBytes,
-                Buffer* response, uint64_t* lastReturnedHash);
+                uint64_t currentHTBucket, uint64_t currentHTBucketEntry,
+                uint64_t endHTBucket, uint32_t respHdrSize,
+                uint32_t numRequestedBytes, Buffer* response,
+                uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry);
 
     /**
      * The following three methods are used when multiple log entries
@@ -279,6 +282,48 @@ class ObjectManager : public LogEntryHandlers,
         DISALLOW_COPY_AND_ASSIGN(TombstoneRemover);
     };
 
+    struct RocksteadyPullHashesParameters {
+        bool zeroCopy;
+
+        uint64_t tableId;
+
+        uint64_t startKeyHash;
+
+        uint64_t endKeyHash;
+
+        uint64_t startBucketEntry;
+
+        uint64_t nextBucketEntry;
+
+        uint32_t numBytesInResponse;
+
+        uint64_t numRequestedBytes;
+
+        Buffer* response;
+
+        HashTableBucketLock* lock;
+
+        ObjectManager* objectManager;
+
+        RocksteadyPullHashesParameters(bool zeroCopy, uint64_t tableId,
+                uint64_t startKeyHash, uint64_t endKeyHash,
+                uint64_t startBucketEntry, uint32_t numBytesInResponse,
+                uint64_t numRequestedBytes, Buffer* response,
+                HashTableBucketLock* lock, ObjectManager* objectManager)
+            : zeroCopy(zeroCopy)
+            , tableId(tableId)
+            , startKeyHash(startKeyHash)
+            , endKeyHash(endKeyHash)
+            , startBucketEntry(startBucketEntry)
+            , nextBucketEntry(0)
+            , numBytesInResponse(numBytesInResponse)
+            , numRequestedBytes(numRequestedBytes)
+            , response(response)
+            , lock(lock)
+            , objectManager(objectManager)
+        {}
+    };
+
     static string dumpSegment(Segment* segment);
     uint32_t getObjectTimestamp(Buffer& buffer);
     uint32_t getTombstoneTimestamp(Buffer& buffer);
@@ -307,6 +352,7 @@ class ObjectManager : public LogEntryHandlers,
     void relocateTxDecisionRecord(
             Buffer& oldBuffer, LogEntryRelocator& relocator);
     bool replace(HashTableBucketLock& lock, Key& key, Log::Reference reference);
+    static void rocksteadyMigrationScanEntry(uint64_t reference, void* cookie);
 
     /**
      * Shared RAMCloud information.

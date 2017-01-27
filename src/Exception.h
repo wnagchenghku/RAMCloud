@@ -118,6 +118,12 @@ struct DelayedThrower {
 #endif
 };
 
+struct RocksteadyResponseFullException : public Exception {
+  public:
+    explicit RocksteadyResponseFullException(const CodeLocation& where)
+        : Exception(where, "PullHashes rpc response buffer is full") {}
+};
+
 } // end RAMCloud
 
 #endif  // RAMCLOUD__H

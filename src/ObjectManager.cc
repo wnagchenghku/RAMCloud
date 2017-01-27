@@ -3297,56 +3297,119 @@ ObjectManager::getSafeVersion()
     return segmentManager.getSafeVersion();
 }
 
+uint64_t
+ObjectManager::getNumHashTableBuckets()
+{
+    return objectMap.getNumBuckets();
+}
+
+void
+ObjectManager::rocksteadyMigrationScanEntry(
+                uint64_t reference, void* cookie)
+{
+    RocksteadyPullHashesParameters* rocksteadyParams =
+            reinterpret_cast<RocksteadyPullHashesParameters*>(cookie);
+
+    if (rocksteadyParams->nextBucketEntry <
+        rocksteadyParams->startBucketEntry) {
+        rocksteadyParams->nextBucketEntry++;
+        return;
+    }
+
+    bool zeroCopy = rocksteadyParams->zeroCopy;
+    uint64_t tableId = rocksteadyParams->tableId;
+    uint64_t startKeyHash = rocksteadyParams->startKeyHash;
+    uint64_t endKeyHash = rocksteadyParams->endKeyHash;
+    uint64_t numRequestedBytes = rocksteadyParams->numRequestedBytes;
+
+    ObjectManager* objectManager = rocksteadyParams->objectManager;
+
+    uint32_t logEntryLength = 0;
+
+    Log::Reference logEntryReference(reference);
+    LogEntryType type = objectManager->log.getEntry(logEntryReference,
+            *(rocksteadyParams->response), zeroCopy, &logEntryLength);
+
+    if (type != LOG_ENTRY_TYPE_OBJ) {
+        (rocksteadyParams->response)->truncate(
+                rocksteadyParams->numBytesInResponse);
+        rocksteadyParams->nextBucketEntry++;
+        return;
+    }
+
+    Object object(*(rocksteadyParams->response),
+            rocksteadyParams->numBytesInResponse, /* Offset within buffer */
+            logEntryLength);
+
+    uint64_t objectPKHash = object.getPKHash();
+    if (objectPKHash < startKeyHash || objectPKHash > endKeyHash ||
+        object.getTableId() != tableId) {
+        (rocksteadyParams->response)->truncate(
+                rocksteadyParams->numBytesInResponse);
+        rocksteadyParams->nextBucketEntry++;
+        return;
+    }
+
+    rocksteadyParams->numBytesInResponse += logEntryLength;
+
+    // This check includes the size of the response header.
+    if (rocksteadyParams->numBytesInResponse > numRequestedBytes) {
+        throw RocksteadyResponseFullException(HERE);
+    }
+
+    rocksteadyParams->nextBucketEntry++;
+    return;
+}
+
 uint32_t
 ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
                 uint64_t startKeyHash, uint64_t endKeyHash,
-                uint64_t currentKeyHash, uint32_t numRequestedBytes,
-                Buffer* response, uint64_t* lastReturnedHash)
+                uint64_t currentHTBucket, uint64_t currentHTBucketEntry,
+                uint64_t endHTBucket, uint32_t respHdrSize,
+                uint32_t numRequestedBytes, Buffer* response,
+                uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry)
 {
-    uint32_t bufferOffset = 0;
-    uint32_t numReturnedBytes = 0;
-
     bool zeroCopy = true;
+    uint32_t numReturnedBytes = 0;
+    uint32_t numBytesInResponse = respHdrSize;
+    uint64_t startBucketEntry = currentHTBucketEntry;
 
-    for (; (bufferOffset < numRequestedBytes) ||
-            (currentKeyHash > endKeyHash); currentKeyHash++) {
-        uint32_t logEntryLength = 0;
+    for (uint64_t bucketIndex = currentHTBucket;
+        bucketIndex <= endHTBucket; bucketIndex++) {
+        // In the current implementation of the hash table, a key that
+        // hashes to bucketIndex will also fall in bucket bucketIndex. Can't
+        // overload because prefetchBucket() currently takes an argument of
+        // type KeyHash which is basically a uint64_t.
+        objectMap.prefetchBucket(bucketIndex);
+        HashTableBucketLock lock(*this, bucketIndex);
+        RocksteadyPullHashesParameters rocksteadyParams(zeroCopy,
+            tableId, startKeyHash, endKeyHash, startBucketEntry,
+            numBytesInResponse, numRequestedBytes, response, &lock,
+            this);
 
-        objectMap.prefetchBucket(currentKeyHash);
-        HashTableBucketLock lock(*this, currentKeyHash);
+        try {
+            objectMap.forEachInBucket(
+                    ObjectManager::rocksteadyMigrationScanEntry,
+                    reinterpret_cast<void*>(&rocksteadyParams), bucketIndex);
+        } catch (RocksteadyResponseFullException &e) {
+            numBytesInResponse = rocksteadyParams.numBytesInResponse;
 
-        HashTable::Candidates candidates;
-        objectMap.lookup(currentKeyHash, candidates);
-        for(; !candidates.isDone(); candidates.next()) {
-            Log::Reference candidateRef(candidates.getReference());
-            LogEntryType type = log.getEntry(candidateRef, *response,
-                    zeroCopy, &logEntryLength);
-
-            if (type != LOG_ENTRY_TYPE_OBJ) {
-                continue;
-            }
-
-            Object object(*response, bufferOffset, logEntryLength);
-
-            if (object.getPKHash() != currentKeyHash ||
-                object.getTableId() != tableId) {
-                response->truncate(bufferOffset);
-                continue;
-            }
-
-            bufferOffset += logEntryLength;
-            if (bufferOffset >= numRequestedBytes) {
-                // TODO How should currentKeyHash be updated in such a
-                // situation?
-                *lastReturnedHash = currentKeyHash;
-                return numReturnedBytes = bufferOffset;
-            }
+            // XXX: As a result of these return values, consecutive rpcs on
+            // the same portion/chunk of the hash table might overlap over a
+            // few entries - entries are never retransmitted though. A hash
+            // table bucket iterator will have to be implemented to fix this.
+            *nextHTBucket = bucketIndex;
+            *nextHTBucketEntry = rocksteadyParams.nextBucketEntry;
+            return numReturnedBytes = numBytesInResponse - respHdrSize;
         }
+
+        startBucketEntry = 0;
+        numBytesInResponse = rocksteadyParams.numBytesInResponse;
     }
 
-    *lastReturnedHash = currentKeyHash - 1;
-
-    return numReturnedBytes = bufferOffset;
+    *nextHTBucket = endHTBucket + 1;
+    *nextHTBucketEntry = 0;
+    return numReturnedBytes = numBytesInResponse - respHdrSize;
 }
 
 } //enamespace RAMCloud

@@ -2049,6 +2049,19 @@ MasterService::requestRemoveIndexEntries(Object& object)
     }
 }
 
+/**
+ * Top level server method to handle the ROCKSTEADY_MIGRATION_PULL_HASHES
+ * request.
+ *
+ * This method first ensures that the requested tablet is present on the
+ * master, has been locked for migration, and that the hash table buckets
+ * to be searched are bounded by the total number of hash table buckets on
+ * the master. It then invokes the object manager which populates the
+ * response payload of the rpc with log entries belonging to the tablet
+ * under migration.
+ *
+ * \copydetails Service::ping
+ */
 void MasterService::rocksteadyMigrationPullHashes(
         const WireFormat::RocksteadyMigrationPullHashes::Request* reqHdr,
         WireFormat::RocksteadyMigrationPullHashes::Response* respHdr,
@@ -2057,11 +2070,14 @@ void MasterService::rocksteadyMigrationPullHashes(
     const uint64_t tableId = reqHdr->tableId;
     const uint64_t startKeyHash = reqHdr->startKeyHash;
     const uint64_t endKeyHash = reqHdr->endKeyHash;
-    const uint64_t currentKeyHash = reqHdr->currentKeyHash;
+    const uint64_t currentHTBucket = reqHdr->currentHTBucket;
+    const uint64_t currentHTBucketEntry = reqHdr->currentHTBucketEntry;
+    const uint64_t endHTBucket = reqHdr->endHTBucket;
     const uint32_t numRequestedBytes = reqHdr->numRequestedBytes;
 
+    uint64_t nextHTBucket = 0;
+    uint64_t nextHTBucketEntry = 0;
     uint32_t numReturnedBytes = 0;
-    uint64_t lastReturnedHash = 0;
     Buffer* response = rpc->replyPayload;
 
     // TODO: A spinlock is acquired inside getTablet. Can/Should this call be
@@ -2074,41 +2090,53 @@ void MasterService::rocksteadyMigrationPullHashes(
     //
     // Performing these checks here rather than before every hash table lookup
     // helps avoid contention between multiple in progress pull hashes rpcs.
+
+    // Check to ensure that the requested tablet is present on this master.
     TabletManager::Tablet sourceTablet;
-    bool found = tabletManager.getTablet(tableId, currentKeyHash,
+    bool found = tabletManager.getTablet(tableId, startKeyHash, endKeyHash,
                          &sourceTablet);
     if (!found) {
         LOG(WARNING, "Migration Pull Hashes request for a tablet this master"
                 " does not posses: requested region [0x%lx, 0x%lx], table %lu,"
-                " and hash %lx", startKeyHash, endKeyHash, tableId,
-                currentKeyHash);
+                " and hash table bucket %lu.", startKeyHash, endKeyHash,
+                tableId, currentHTBucket);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
     }
 
+    // Check if the tablet was previously locked for migration.
     if (sourceTablet.state != TabletManager::LOCKED_FOR_MIGRATION) {
         LOG(WARNING, "Migration Pull Hashes request for a tablet that was"
                 " not previously locked for migration: requested region"
-                " [0x%lx, 0x%lx], table %lu, and hash %lx", startKeyHash,
-                endKeyHash, tableId, currentKeyHash);
+                " [0x%lx, 0x%lx], table %lu, and hash table bucket %lu",
+                startKeyHash, endKeyHash, tableId, currentHTBucket);
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
 
-    if (currentKeyHash < startKeyHash || currentKeyHash > endKeyHash) {
-        LOG(WARNING, "Migration Pull Hashes request on an out of bounds hash"
-                ": requested region [0x%lx, 0x%lx], table %lu, hash 0x%lx",
-                startKeyHash, endKeyHash, tableId, currentKeyHash);
+    // Check to ensure that the set of hash table buckets to be scanned
+    // will not overflow this master's hash table.
+    uint64_t numHTBuckets = objectManager.getNumHashTableBuckets();
+    if (currentHTBucket >= numHTBuckets || endHTBucket >= numHTBuckets) {
+        LOG(WARNING, "Migration Pull Hashes request on an out of bounds"
+                " hash table bucket: currentHTBucket %lu, endHTBucket"
+                " %lu, and numHTBuckets %lu", currentHTBucket, endHTBucket,
+                numHTBuckets);
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
 
+    uint32_t respHdrSize = sizeof32(*respHdr);
     numReturnedBytes = objectManager.rocksteadyMigrationPullHashes(
-                            tableId, startKeyHash, endKeyHash, currentKeyHash,
-                            numRequestedBytes, response, &lastReturnedHash);
+                            tableId, startKeyHash, endKeyHash, currentHTBucket,
+                            currentHTBucketEntry, endHTBucket, respHdrSize,
+                            numRequestedBytes, response, &nextHTBucket,
+                            &nextHTBucketEntry);
 
-    respHdr->lastReturnedHash = lastReturnedHash;
+    respHdr->nextHTBucket = nextHTBucket;
+    respHdr->nextHTBucketEntry = nextHTBucketEntry;
     respHdr->numReturnedBytes = numReturnedBytes;
+    respHdr->common.status = STATUS_OK;
 
     return;
 }
@@ -2118,7 +2146,8 @@ void MasterService::rocksteadyMigrationPullHashes(
  *
  * This method first checks to see if it owns the requested tablet. If it
  * does, it locks the tablet for migration, allows any pending writes on the
- * tablet to complete, and returns the safe version number on the source.
+ * tablet to complete, and returns the safe version number and number of hash
+ * table buckets on the source.
  *
  * \copydetails Service::ping
  */
@@ -2159,6 +2188,11 @@ void MasterService::rocksteadyPrepForMigration(
     // Return the safe version number so that the destination may serve
     // writes on objects that have not been migrated yet.
     respHdr->safeVersion = objectManager.getSafeVersion();
+
+    // Return the number of hash table buckets so that the destination can
+    // pull tablet entries in parallel.
+    respHdr->numHTBuckets = objectManager.getNumHashTableBuckets();
+
     respHdr->common.status = STATUS_OK;
     return;
 }

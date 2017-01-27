@@ -4632,14 +4632,144 @@ TEST_F(MasterServiceTest, rocksteadyPrepForMigration) {
     ramcloud->write(1, "1", 1, "gogeta", 6, NULL, NULL, false);
 
     uint64_t safeVersionExpected = 3;
+    uint64_t numHTBuckets = 0;
     EXPECT_THROW(MasterClient::rocksteadyPrepForMigration(&context,
-            masterServer->serverId, 99, 900, 1098),
+            masterServer->serverId, 99, 900, 1098, &numHTBuckets),
             UnknownTabletException);
 
     uint64_t beforePrepEpoch = LogProtector::getCurrentEpoch();
     EXPECT_EQ(safeVersionExpected, MasterClient::rocksteadyPrepForMigration(
-            &context, masterServer->serverId, 99, 31, 891));
+            &context, masterServer->serverId, 99, 31, 891, &numHTBuckets));
+    EXPECT_EQ(16384UL, numHTBuckets);
     EXPECT_GT(LogProtector::getCurrentEpoch(), beforePrepEpoch);
+}
+
+TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_single) {
+    service->tabletManager.addTablet(99, 0, ~0UL, TabletManager::NORMAL);
+    ramcloud->write(99, "0", 1, "beerus", 6, NULL, NULL, false);
+
+    uint64_t numHTBuckets = 0;
+    uint64_t safeVersion = MasterClient::rocksteadyPrepForMigration(&context,
+            masterServer->serverId, 99, 0, ~0UL, &numHTBuckets);
+
+    EXPECT_EQ(2UL, safeVersion);
+    EXPECT_EQ(16384UL, numHTBuckets);
+
+    uint64_t nextHTBucket = 0;
+    uint64_t nextHTBucketEntry = 0;
+    uint32_t numReturnedBytes = 0;
+    Buffer objectBuffer;
+
+    numReturnedBytes = MasterClient::rocksteadyMigrationPullHashes(&context,
+            masterServer->serverId, 99, 0UL, ~0UL, 0, 0, numHTBuckets - 1,
+            10240, &nextHTBucket, &nextHTBucketEntry, &objectBuffer);
+
+    EXPECT_EQ(34UL, numReturnedBytes);
+
+    objectBuffer.truncateFront(
+            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
+
+    Object migratedObject(objectBuffer, 0, 34);
+
+    EXPECT_EQ("0", string(static_cast<const char *>(
+            migratedObject.getKey()), 1));
+    EXPECT_EQ("beerus", string(static_cast<const char *>(
+            migratedObject.getValue()), 6));
+    EXPECT_EQ(16384UL, nextHTBucket);
+    EXPECT_EQ(0UL, nextHTBucketEntry);
+}
+
+TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_parallel) {
+    service->tabletManager.addTablet(99, 0, ~0UL, TabletManager::NORMAL);
+    ramcloud->write(99, "00", 2, "eragon", 6, NULL, NULL, false);
+    ramcloud->write(99, "20", 2, "aragon", 6, NULL, NULL, false);
+    ramcloud->write(99, "60", 2, "perrin", 6, NULL, NULL, false);
+    ramcloud->write(99, "90", 2, "naruto", 6, NULL, NULL, false);
+
+    uint64_t numHTBuckets = 0;
+    uint64_t safeVersion = MasterClient::rocksteadyPrepForMigration(&context,
+            masterServer->serverId, 99, 0UL, ~0UL, &numHTBuckets);
+
+    EXPECT_EQ(5UL, safeVersion);
+    EXPECT_EQ(16384UL, numHTBuckets);
+
+    uint64_t currentHTBucket[] = { 0, numHTBuckets / 4, numHTBuckets / 2,
+                                    3 * (numHTBuckets / 4) };
+    uint64_t endHTBucket[] = { (numHTBuckets / 4) - 1, (numHTBuckets / 2) - 1,
+                                3 * (numHTBuckets / 4) - 1, numHTBuckets - 1 };
+
+    uint64_t nextHTBucket[4] = { 0 };
+    uint64_t nextHTBucketEntry[4] = { 0 };
+    uint32_t numReturnedBytes[4] = { 0 };
+    Buffer objectBuffer[4];
+
+    Tub<RocksteadyMigrationPullHashesRpc> pullHashes[4];
+
+    string returnedKey[] = { "00", "60", "90", "20" };
+    string returnedVal[] = { "eragon", "perrin", "naruto", "aragon" };
+
+    for (uint32_t i = 0; i < 4; i++) {
+        pullHashes[i].construct(&context, masterServer->serverId, 99, 0UL,
+                ~0UL, currentHTBucket[i], 0, endHTBucket[i], 10240,
+                &(objectBuffer[i]));
+    }
+
+    for (uint32_t i = 0; i < 4; i++) {
+        while (!(pullHashes[i]->isReady()));
+
+        numReturnedBytes[i] = pullHashes[i]->wait(&(nextHTBucket[i]),
+                &(nextHTBucketEntry[i]));
+
+        EXPECT_EQ(35UL, numReturnedBytes[i]);
+
+        objectBuffer[i].truncateFront(
+                sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
+
+        Object migratedObject(objectBuffer[i], 0, 35);
+
+        EXPECT_EQ(returnedKey[i], string(static_cast<const char *>(
+                migratedObject.getKey()), 2));
+        EXPECT_EQ(returnedVal[i], string(static_cast<const char *>(
+                migratedObject.getValue()), 6));
+        EXPECT_EQ(endHTBucket[i] + 1, nextHTBucket[i]);
+        EXPECT_EQ(0UL, nextHTBucketEntry[i]);
+    }
+}
+
+TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_responseSize) {
+    service->tabletManager.addTablet(99, 0, ~0UL, TabletManager::NORMAL);
+    ramcloud->write(99, "00", 2, "eragon", 6, NULL, NULL, false);
+    ramcloud->write(99, "20", 2, "aragon", 6, NULL, NULL, false);
+    ramcloud->write(99, "60", 2, "perrin", 6, NULL, NULL, false);
+    ramcloud->write(99, "90", 2, "naruto", 6, NULL, NULL, false);
+
+    uint64_t numHTBuckets = 0;
+    uint64_t safeVersion = MasterClient::rocksteadyPrepForMigration(&context,
+            masterServer->serverId, 99, 0UL, ~0UL, &numHTBuckets);
+
+    EXPECT_EQ(5UL, safeVersion);
+    EXPECT_EQ(16384UL, numHTBuckets);
+
+    uint64_t nextHTBucket = 0;
+    uint64_t nextHTBucketEntry = 0;
+    uint32_t numReturnedBytes = 0;
+    Buffer objectBuffer;
+
+    numReturnedBytes = MasterClient::rocksteadyMigrationPullHashes(&context,
+            masterServer->serverId, 99, 0UL, ~0UL, 0, 0, numHTBuckets - 1,
+            50, &nextHTBucket, &nextHTBucketEntry, &objectBuffer);
+
+    EXPECT_EQ(35UL, numReturnedBytes);
+
+    objectBuffer.truncateFront(
+            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
+
+    Object migratedObject(objectBuffer, 0, 35UL);
+
+    EXPECT_EQ("00", string(static_cast<const char *>(
+            migratedObject.getKey()), 2));
+    EXPECT_EQ("eragon", string(static_cast<const char *>(
+            migratedObject.getValue()), 6));
 }
 
 class MasterRecoverTest : public ::testing::Test {
