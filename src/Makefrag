@@ -129,6 +129,7 @@ SHARED_SRCFILES := \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \
 		   src/ReplicatedSegment.cc \
+		   src/RocksteadyMigrationManager.cc \
 		   src/RpcLevel.cc \
 		   src/RpcWrapper.cc \
 		   src/RpcResult.cc \

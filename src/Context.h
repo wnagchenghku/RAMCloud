@@ -39,6 +39,7 @@ class MasterService;
 class MockContextMember;
 class ObjectFinder;
 class PortAlarmTimer;
+class RocksteadyMigrationManager;
 class Service;
 class WorkerManager;
 class SessionAlarmTimer;
@@ -137,6 +138,8 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
+
+    RocksteadyMigrationManager* rocksteadyMigrationManager;
 
     /**
      * Returns the BackupService associated with this context, if

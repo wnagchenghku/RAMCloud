@@ -23,6 +23,7 @@
 #include "DispatchExec.h"
 #include "ObjectFinder.h"
 #include "PortAlarm.h"
+#include "RocksteadyMigrationManager.h"
 #include "ShortMacros.h"
 #include "SessionAlarm.h"
 #include "TableManager.h"
@@ -89,6 +90,7 @@ Context::Context(bool hasDedicatedDispatchThread,
     , coordinatorServerList(NULL)
     , tableManager(NULL)
     , recoveryManager(NULL)
+    , rocksteadyMigrationManager(NULL)
 {
     try {
         Cycles::init();
@@ -140,6 +142,9 @@ Context::destroy()
     // The pointers are set to NULL here after they're deleted to make it
     // easier to catch bugs in which outer members try to access inner members.
     // Note: the order of deletion matters!
+
+    delete rocksteadyMigrationManager;
+    rocksteadyMigrationManager = NULL;
 
     // Force ObjectManager to drop all of its cached sessions; otherwise
     // they won't get destroyed until after their transports have been deleted.

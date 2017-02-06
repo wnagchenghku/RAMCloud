@@ -14,6 +14,7 @@
  */
 
 #include "BindTransport.h"
+#include "RocksteadyMigrationManager.h"
 #include "Server.h"
 #include "ShortMacros.h"
 #include "WorkerManager.h"
@@ -47,6 +48,8 @@ Server::Server(Context* context, const ServerConfig* config)
     context->coordinatorSession->setLocation(
             config->coordinatorLocator.c_str(), config->clusterName.c_str());
     context->workerManager = new WorkerManager(context, config->maxCores-1);
+    context->rocksteadyMigrationManager =
+            new RocksteadyMigrationManager(context);
 }
 
 /**
