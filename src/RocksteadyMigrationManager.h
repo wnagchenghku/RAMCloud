@@ -4,7 +4,7 @@
 #include <deque>
 
 #include "Dispatch.h"
-#include "Service.h"
+#include "ServerId.h"
 
 namespace RAMCloud {
 
@@ -29,6 +29,38 @@ class RocksteadyMigrationManager : Dispatch::Poller {
 };
 
 class RocksteadyMigration {
+  public:
+    explicit RocksteadyMigration(Context* context, ServerId sourceServerId,
+            uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash);
+    ~RocksteadyMigration() {}
+
+    int poll();
+
+  PRIVATE:
+    Context* context;
+
+    enum MigrationPhase {
+        SETUP,
+
+        MIGRATING_DATA,
+
+        TEAR_DOWN,
+
+        COMPLETED
+    };
+
+    ServerId sourceServerId;
+
+    uint64_t tableId;
+
+    uint64_t startKeyHash;
+
+    uint64_t endKeyHash;
+
+    MigrationPhase phase;
+
+    friend class RocksteadyMigrationManager;
+    DISALLOW_COPY_AND_ASSIGN(RocksteadyMigration);
 };
 
 }  // namespace RAMCloud
