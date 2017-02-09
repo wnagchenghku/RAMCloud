@@ -1,5 +1,7 @@
 #include <new>
 
+#include "OptionParser.h"
+#include "MasterService.h"
 #include "RocksteadyMigrationManager.h"
 
 namespace RAMCloud {
@@ -7,6 +9,7 @@ namespace RAMCloud {
 RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context)
     : Dispatch::Poller(context->dispatch, "RocksteadyMigrationManager")
     , context(context)
+    , localLocator(context->options->getLocalLocator())
     , migrationsInProgress()
 {
     ;
@@ -15,17 +18,17 @@ RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context)
 RocksteadyMigrationManager::~RocksteadyMigrationManager()
 {
     // Iterate through the set of in-progress migrations and make sure all
-    // of them complete, delete them, and only then return from this method.
+    // of them complete.
     for (auto migration = migrationsInProgress.begin();
         migration != migrationsInProgress.end(); ) {
+        RocksteadyMigration* currentMigration = *migration;
 
-        while ((*migration)->phase != RocksteadyMigration::COMPLETED) {
-            (*migration)->poll();
+        while (currentMigration->phase != RocksteadyMigration::COMPLETED) {
+            currentMigration->poll();
         }
 
-        RocksteadyMigration* completedMigration = *migration;
         migration = migrationsInProgress.erase(migration);
-        delete completedMigration;
+        delete currentMigration;
     }
 }
 
@@ -36,20 +39,20 @@ RocksteadyMigrationManager::poll()
 
     for (auto migration = migrationsInProgress.begin();
         migration != migrationsInProgress.end(); ) {
+        RocksteadyMigration* currentMigration = *migration;
 
-        workPerformed += (*migration)->poll();
+        workPerformed += currentMigration->poll();
 
         // Delete any completed migrations.
-        if ((*migration)->phase == RocksteadyMigration::COMPLETED) {
-            RocksteadyMigration* completedMigration = *migration;
+        if (currentMigration->phase == RocksteadyMigration::COMPLETED) {
             migration = migrationsInProgress.erase(migration);
-            delete completedMigration;
+            delete currentMigration;
         } else {
             migration++;
         }
     }
 
-    return workPerformed;
+    return workPerformed == 0 ? 0 : 1;
 }
 
 bool
@@ -67,30 +70,62 @@ RocksteadyMigrationManager::startMigration(ServerId sourceServerId,
 
     // Add the new migration to the manager.
     RocksteadyMigration* newMigration = new RocksteadyMigration(context,
-                                        sourceServerId, tableId,
-                                        startKeyHash, endKeyHash);
+                                        this->localLocator, sourceServerId,
+                                        tableId, startKeyHash, endKeyHash);
 
-    // XXX Should I synchronize here?
     migrationsInProgress.push_back(newMigration);
 
     return true;
 }
 
 RocksteadyMigration::RocksteadyMigration(Context* context,
-                        ServerId sourceServerId, uint64_t tableId,
-                        uint64_t startKeyHash, uint64_t endKeyHash)
+                        string localLocator, ServerId sourceServerId,
+                        uint64_t tableId, uint64_t startKeyHash,
+                        uint64_t endKeyHash)
     : context(context)
+    , objectManager()
+    , localLocator(localLocator)
     , sourceServerId(sourceServerId)
     , tableId(tableId)
     , startKeyHash(startKeyHash)
     , endKeyHash(endKeyHash)
     , phase(RocksteadyMigration::SETUP)
+    , prepareSourceRpc()
+    , pullRpcs()
+    , replayTasks()
+    , pullBuffers()
+    , sideLogs()
+    , partitions()
 {
-    ;
+    objectManager = &((context->getMasterService())->objectManager);
+
+    // Construct all the sidelogs.
+    for (uint32_t i = 0; i < MAX_PARALLEL_PULL_RPCS * PARTITION_PIPELINE_DEPTH;
+        i++) {
+        sideLogs[i].construct(objectManager->getLog());
+    }
 }
 
 int
 RocksteadyMigration::poll()
+{
+    return 0;
+}
+
+int
+RocksteadyMigration::prepare()
+{
+    return 0;
+}
+
+int
+RocksteadyMigration::pullAndReplay()
+{
+    return 0;
+}
+
+int
+RocksteadyMigration::tearDown()
 {
     return 0;
 }
