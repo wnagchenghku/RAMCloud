@@ -104,6 +104,7 @@ class ObjectManager : public LogEntryHandlers,
     Status commitWrite(PreparedOp& op, Log::Reference& refToPreparedOp,
                         Buffer* removedObjBuffer = NULL);
     uint64_t getSafeVersion();
+    bool raiseSafeVersion(uint64_t minimum);
     uint64_t getNumHashTableBuckets();
     uint32_t rocksteadyMigrationPullHashes(uint64_t tableId,
                 uint64_t startKeyHash, uint64_t endKeyHash,

@@ -90,32 +90,111 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , startKeyHash(startKeyHash)
     , endKeyHash(endKeyHash)
     , phase(RocksteadyMigration::SETUP)
+    , sourceNumHTBuckets()
+    , sourceSafeVersion()
     , prepareSourceRpc()
-    , pullRpcs()
-    , replayTasks()
-    , pullBuffers()
-    , sideLogs()
     , partitions()
+    , pullRpcs()
+    , freePullRpcs()
+    , busyPullRpcs()
+    , replayRpcs()
+    , freeReplayRpcs()
+    , busyReplayRpcs()
+    , sideLogs()
 {
     objectManager = &((context->getMasterService())->objectManager);
 
+    // To begin with, all pull rpcs are free.
+    for (uint32_t i = 0; i < MAX_PARALLEL_PULL_RPCS; i++) {
+        freePullRpcs.push_back(&(pullRpcs[i]));
+    }
+
+    // To begin with, all replay rpcs are free.
+    for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
+        freeReplayRpcs.push_back(&(replayRpcs[i]));
+    }
+
     // Construct all the sidelogs.
-    for (uint32_t i = 0; i < MAX_PARALLEL_PULL_RPCS * PARTITION_PIPELINE_DEPTH;
-        i++) {
+    for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
         sideLogs[i].construct(objectManager->getLog());
     }
+}
+
+RocksteadyMigration::~RocksteadyMigration()
+{
+    sourceSafeVersion.destroy();
+    prepareSourceRpc.destroy();
 }
 
 int
 RocksteadyMigration::poll()
 {
-    return 0;
+    switch(phase) {
+        case SETUP : return prepare();
+
+        case MIGRATING_DATA : return pullAndReplay();
+
+        case TEAR_DOWN : return tearDown();
+
+        case COMPLETED : return 0;
+
+        default : return 0;
+    }
 }
 
 int
 RocksteadyMigration::prepare()
 {
-    return 0;
+    // TODO: Once the take-ownership rpc has been implemented, add code here
+    // to check if it has completed. Once completed, construct the set of
+    // partitions.
+
+    if (prepareSourceRpc) {
+        // If the prepare rpc was sent out, check for it's completion.
+        if (prepareSourceRpc->isReady()) {
+            // If the prepare rpc has completed, update the local safeVersion.
+            sourceSafeVersion.construct(
+                    prepareSourceRpc->wait(&sourceNumHTBuckets));
+            objectManager->raiseSafeVersion(*sourceSafeVersion);
+
+            // TODO: Once the take-ownership rpc has been implemented, add
+            // code here to invoke it.
+
+            // TODO: This code should be moved to after the destination has
+            // taken over ownership of the tablet under migration.
+            for (uint32_t i = 0; i < MAX_PARALLEL_PULL_RPCS; i++) {
+                uint64_t partitionStartHTBucket =
+                        i * (sourceNumHTBuckets / MAX_PARALLEL_PULL_RPCS);
+                uint64_t partitionEndHTBucket =
+                        ((i + 1) * (sourceNumHTBuckets /
+                        MAX_PARALLEL_PULL_RPCS)) - 1;
+
+                partitions[i].construct(partitionStartHTBucket,
+                        partitionEndHTBucket);
+
+                RAMCLOUD_LOG(DEBUG, "Created hash table partition from bucket"
+                        " %lu to bucket %lu. (Migrating tablet [0x%lx, 0x%lx],"
+                        " tableId %lu)", partitionStartHTBucket,
+                        partitionEndHTBucket, startKeyHash, endKeyHash,
+                        tableId);
+            }
+
+            // The destination can now start migrating data.
+            phase = MIGRATING_DATA;
+
+            return 1;
+        } else {
+            // If the prepare rpc was sent out, but a response hasn't been
+            // received yet.
+            return 0;
+        }
+    } else {
+        // Send out the prepare rpc if it hasn't been sent out yet.
+        prepareSourceRpc.construct(context, sourceServerId, tableId,
+                startKeyHash, endKeyHash);
+
+        return 1;
+    }
 }
 
 int

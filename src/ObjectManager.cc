@@ -3297,6 +3297,12 @@ ObjectManager::getSafeVersion()
     return segmentManager.getSafeVersion();
 }
 
+bool
+ObjectManager::raiseSafeVersion(uint64_t minimum)
+{
+    return segmentManager.raiseSafeVersion(minimum);
+}
+
 uint64_t
 ObjectManager::getNumHashTableBuckets()
 {
