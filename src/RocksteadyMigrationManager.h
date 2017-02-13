@@ -134,9 +134,9 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadyHashPartition);
     };
 
-    static const uint32_t MAX_PARALLEL_PULL_RPCS = 3;
+    static const uint32_t MAX_NUM_PARTITIONS = 3;
 
-    Tub<RocksteadyHashPartition> partitions[MAX_PARALLEL_PULL_RPCS];
+    Tub<RocksteadyHashPartition> partitions[MAX_NUM_PARTITIONS];
 
     class RocksteadyPullRpc {
       public:
@@ -144,7 +144,7 @@ class RocksteadyMigration {
                 uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
                 uint64_t currentHTBucket, uint64_t currentHTBucketEntry,
                 uint64_t endHTBucket, uint32_t numRequestedBytes,
-                Tub<Buffer>* response, RocksteadyHashPartition* partition)
+                Tub<Buffer>* response, Tub<RocksteadyHashPartition>* partition)
             : partition(partition)
             , responseBuffer(response)
             , rpc()
@@ -160,7 +160,7 @@ class RocksteadyMigration {
         }
 
       PRIVATE:
-        RocksteadyHashPartition* partition;
+        Tub<RocksteadyHashPartition>* partition;
 
         Tub<Buffer>* responseBuffer;
 
@@ -170,36 +170,49 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadyPullRpc);
     };
 
+    static const uint32_t MAX_PARALLEL_PULL_RPCS = 3;
+
     Tub<RocksteadyPullRpc> pullRpcs[MAX_PARALLEL_PULL_RPCS];
 
     std::deque<Tub<RocksteadyPullRpc>*> freePullRpcs;
 
-    std::vector<Tub<RocksteadyPullRpc>*> busyPullRpcs;
+    std::deque<Tub<RocksteadyPullRpc>*> busyPullRpcs;
 
     static const uint32_t MAX_PARALLEL_REPLAY_RPCS = 6;
 
     class RocksteadyReplayRpc : public Transport::ServerRpc {
       public:
-        explicit RocksteadyReplayRpc(RocksteadyHashPartition* partition,
+        explicit RocksteadyReplayRpc(Tub<RocksteadyHashPartition>* partition,
                 Tub<Buffer>* response, string localLocator)
             : partition(partition)
             , responseBuffer(response)
+            , completed(false)
             , localLocator(localLocator)
         {}
 
         ~RocksteadyReplayRpc() {}
 
-        void sendReply() {}
+        void sendReply()
+        {
+            completed = true;
+        }
 
         string getClientServiceLocator()
         {
             return this->localLocator;
         }
 
+        bool isReady()
+        {
+            return completed;
+        }
+
       PRIVATE:
-        RocksteadyHashPartition* partition;
+        Tub<RocksteadyHashPartition>* partition;
 
         Tub<Buffer>* responseBuffer;
+
+        bool completed;
 
         const string localLocator;
 
@@ -211,7 +224,7 @@ class RocksteadyMigration {
 
     std::deque<Tub<RocksteadyReplayRpc>*> freeReplayRpcs;
 
-    std::vector<Tub<RocksteadyReplayRpc>*> busyReplayRpcs;
+    std::deque<Tub<RocksteadyReplayRpc>*> busyReplayRpcs;
 
     Tub<SideLog> sideLogs[MAX_PARALLEL_REPLAY_RPCS];
 
