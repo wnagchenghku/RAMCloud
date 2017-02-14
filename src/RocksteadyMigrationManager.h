@@ -25,10 +25,14 @@ class RocksteadyMigrationManager : Dispatch::Poller {
                 uint64_t startKeyHash, uint64_t endKeyHash);
 
   PRIVATE:
+    // Shared RAMCloud information.
     Context* context;
 
+    // Address of this RAMCloud master. Required by RocksteadyMigration.
     const string localLocator;
 
+    // The list of in-progress migrations for which this RAMCloud master
+    // is the destination.
     std::vector<RocksteadyMigration*> migrationsInProgress;
 
     DISALLOW_COPY_AND_ASSIGN(RocksteadyMigrationManager);

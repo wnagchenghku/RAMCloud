@@ -7,6 +7,10 @@
 
 namespace RAMCloud {
 
+/**
+ * Constructor for RocksteadyMigrationManager. The manager is registered
+ * as a Poller with this master's dispatch thread.
+ */
 RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context)
     : Dispatch::Poller(context->dispatch, "RocksteadyMigrationManager")
     , context(context)
@@ -16,14 +20,24 @@ RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context)
     ;
 }
 
+/**
+ * Destructor for RocksteadyMigrationManager. Before destroying the manager,
+ * make sure that all in-progress migrations for which this master is the
+ * destination complete.
+
+ * This method could end up hogging the dispatch thread if there are a large
+ * number of in-progress migrations when invoked. However, it is very likely
+ * that this destructor is called only when a master is shutting down. The
+ * alternative is to cancel any in-progress migrations and deal with two
+ * recoveries.
+ */
 RocksteadyMigrationManager::~RocksteadyMigrationManager()
 {
-    // Iterate through the set of in-progress migrations and make sure all
-    // of them complete.
     for (auto migration = migrationsInProgress.begin();
             migration != migrationsInProgress.end(); ) {
         RocksteadyMigration* currentMigration = *migration;
 
+        // If this migration has not completed, wait for it to do so.
         while (currentMigration->phase != RocksteadyMigration::COMPLETED) {
             currentMigration->poll();
         }
@@ -33,6 +47,9 @@ RocksteadyMigrationManager::~RocksteadyMigrationManager()
     }
 }
 
+/**
+ * Poll on any in-progress migrations on this RAMCloud master.
+ */
 int
 RocksteadyMigrationManager::poll()
 {
@@ -56,15 +73,47 @@ RocksteadyMigrationManager::poll()
     return workPerformed == 0 ? 0 : 1;
 }
 
+/**
+ * Add a new migration to this RAMCloud master.
+ *
+ * \param[in] sourceServerId
+ *      Identifier of the source server.
+ * \param[in] tableId
+ *      Identifier of the tablet the requested tablet belongs to.
+ * \param[in] startKeyHash
+ *      Starting key hash of the tablet to be migrated.
+ * \param[in] endKeyHash
+ *      Ending key hash of the tablet to be migrated.
+ *
+ * \return
+ *      True if the migration was added to the master's migration manager.
+ *      False if it wasn't because there was a pre-existing migration that
+ *      overlapped with it.
+ */
 bool
 RocksteadyMigrationManager::startMigration(ServerId sourceServerId,
                             uint64_t tableId, uint64_t startKeyHash,
                             uint64_t endKeyHash)
 {
-    // First check if we have another in-progress migration from the
-    // same source.
+    // Check if
+    // - the requested tablet is already under migration.
+    // - an overlapping tablet is already under migration.
     for (auto& migration : migrationsInProgress) {
-        if (migration->sourceServerId == sourceServerId) {
+        // This condition checks for an overlapping in progress migration. It
+        // assumes that the rest of RAMCloud is correct.
+        bool migrationExists = (sourceServerId == migration->sourceServerId) &&
+                (tableId = migration->tableId) &&
+                // Either startKeyHash overlaps with an existing migration
+                ((startKeyHash >= migration->startKeyHash &&
+                startKeyHash <= migration->endKeyHash) ||
+                // or endKeyHash overlaps with an existing migration
+                (endKeyHash >= migration->startKeyHash &&
+                endKeyHash <= migration->endKeyHash) ||
+                // or an existing migration is a subset of the requested tablet.
+                (startKeyHash <= migration->startKeyHash &&
+                endKeyHash >= migration->endKeyHash));
+
+        if (migrationExists) {
             return false;
         }
     }
