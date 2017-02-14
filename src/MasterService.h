@@ -270,6 +270,10 @@ class MasterService : public Service {
                 const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
                 WireFormat::RocksteadyPrepForMigration::Response* respHdr,
                 Rpc* rpc);
+    void rocksteadyMigrationReplay(
+                const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
+                WireFormat::RocksteadyMigrationReplay::Response* respHdr,
+                Rpc* rpc);
     void splitAndMigrateIndexlet(
                 const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr,

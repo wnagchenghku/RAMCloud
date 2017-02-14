@@ -95,6 +95,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , sourceSafeVersion()
     , prepareSourceRpc()
     , partitions()
+    , numCompletedPartitions(0)
     , pullRpcs()
     , freePullRpcs()
     , busyPullRpcs()
@@ -102,6 +103,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , freeReplayRpcs()
     , busyReplayRpcs()
     , sideLogs()
+    , freeSideLogs()
 {
     objectManager = &((context->getMasterService())->objectManager);
 
@@ -118,6 +120,11 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     // Construct all the sidelogs.
     for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
         sideLogs[i].construct(objectManager->getLog());
+    }
+
+    // To begin with, all sidelogs are free.
+    for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
+        freeSideLogs.push_back(&(sideLogs[i]));
     }
 }
 
@@ -222,6 +229,11 @@ RocksteadyMigration::pullAndReplay()
             (*partition)->currentHTBucketEntry = nextHTBucketEntry;
             (*partition)->totalPulledBytes += numReturnedBytes;
 
+            // There is nothing left to be pulled from within this partition.
+            if ((*partition)->currentHTBucket > (*partition)->endHTBucket) {
+                (*partition)->allDataPulled = true;
+            }
+
             // The response buffer is now eligible for replay.
             (*partition)->freeReplayBuffers.push_back(
                     (*pullRpc)->responseBuffer);
@@ -248,13 +260,25 @@ RocksteadyMigration::pullAndReplay()
             // partition's state.
             Tub<RocksteadyHashPartition>* partition = (*replayRpc)->partition;
             Tub<Buffer>* responseBuffer = (*replayRpc)->responseBuffer;
+            Tub<SideLog>* sideLog = (*replayRpc)->sideLog;
+            uint32_t numReplayedBytes = (*responseBuffer)->size();
 
             // Free up the response buffer so that it can be used for a pull
             // rpc.
             (*responseBuffer).destroy();
             (*partition)->freePullBuffers.push_back(responseBuffer);
-            // TODO: Update totalReplayedBytes in the partition.
+            (*partition)->totalReplayedBytes += numReplayedBytes;
             (*partition)->numReplaysInProgress--;
+
+            // All data within this partition has been pulled and replayed.
+            if (((*partition)->allDataPulled == true) &&
+                    ((*partition)->freeReplayBuffers.size() == 0)) {
+                (*partition).destroy();
+                numCompletedPartitions++;
+            }
+
+            // Add the sideLog to the free list.
+            freeSideLogs.push_back(sideLog);
 
             // Add this rpc to the free list.
             (*replayRpc).destroy();
@@ -268,6 +292,12 @@ RocksteadyMigration::pullAndReplay()
         busyReplayRpcs.pop_front();
     }
 
+    // All partitions have completed pulling and replaying data.
+    if (numCompletedPartitions == MAX_NUM_PARTITIONS) {
+        phase = TEAR_DOWN;
+        return workDone;
+    }
+
     // Issue a new batch of pulls if possible.
     if (freePullRpcs.size() != 0 ) {
         // Identify the set of partitions on which a pull rpc can be
@@ -278,8 +308,10 @@ RocksteadyMigration::pullAndReplay()
             // A partition is eligible for a pull rpc only if
             // - there is no other pull rpc in progress on it.
             // - there is a free buffer on which a pull rpc can be issued.
+            // - there is data left to be pulled.
             if ((partitions[i]->pullRpcInProgress == false) &&
-                    (partitions[i]->freePullBuffers.size() != 0)) {
+                    (partitions[i]->freePullBuffers.size() != 0) &&
+                    (partitions[i]->allDataPulled == false)) {
                 candidatePartitions.push_back(&(partitions[i]));
             }
         }
@@ -331,11 +363,13 @@ RocksteadyMigration::pullAndReplay()
         std::deque<Tub<RocksteadyHashPartition>*> candidatePartitions;
 
         // A partition is eligible for a replay only if
+        // - it still exists.
         // - the number of in-progress replays is lesser than the pipeline
         //   depth.
         // - there is data to be replayed within the partition.
         for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
-            if ((partitions[i]->numReplaysInProgress <
+            if (partitions[i] &&
+                    (partitions[i]->numReplaysInProgress <
                     PARTITION_PIPELINE_DEPTH) &&
                     (partitions[i]->freeReplayBuffers.size() != 0)) {
                 candidatePartitions.push_back(&(partitions[i]));
@@ -357,13 +391,19 @@ RocksteadyMigration::pullAndReplay()
                 (candidatePartitions.size() != 0)) {
             // Get a replay rpc and a partition to issue it on.
             Tub<RocksteadyReplayRpc>* replayRpc = freeReplayRpcs.front();
+            Tub<SideLog>* sideLog = freeSideLogs.front();
             Tub<RocksteadyHashPartition>* partition =
                     candidatePartitions.front();
             Tub<Buffer>* responseBuffer =
                     (*partition)->freeReplayBuffers.front();
 
+            // First remove the pull rpc's response header.
+            (*responseBuffer)->truncateFront(sizeof32(
+                    WireFormat::RocksteadyMigrationReplay::Response));
+
             // Construct the rpc and hand it over to the worker manager.
-            (*replayRpc).construct(partition, responseBuffer, localLocator);
+            (*replayRpc).construct(partition, responseBuffer, sideLog,
+                    localLocator);
             context->workerManager->handleRpc(replayRpc->get());
 
             (*partition)->freeReplayBuffers.pop_front();
@@ -377,6 +417,8 @@ RocksteadyMigration::pullAndReplay()
                 candidatePartitions.push_back(partition);
             }
             candidatePartitions.pop_front();
+
+            freeSideLogs.pop_front();
 
             // The rpc is now busy.
             busyReplayRpcs.push_back(replayRpc);
@@ -392,7 +434,19 @@ RocksteadyMigration::pullAndReplay()
 int
 RocksteadyMigration::tearDown()
 {
-    return 0;
+    int workDone = 0;
+
+    // TODO: Add code to issue a completion rpc to the source here.
+
+    // Commit all the sidelogs to the main in-memory log.
+    for(uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
+        sideLogs[i]->commit();
+    }
+
+    phase = COMPLETED;
+    workDone++;
+
+    return workDone;
 }
 
 }  // namespace RAMCloud

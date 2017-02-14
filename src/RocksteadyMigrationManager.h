@@ -92,6 +92,7 @@ class RocksteadyMigration {
             , currentHTBucketEntry(0)
             , totalPulledBytes(0)
             , totalReplayedBytes(0)
+            , allDataPulled(false)
             , pullRpcInProgress(false)
             , numReplaysInProgress(0)
             , rpcBuffers()
@@ -120,6 +121,8 @@ class RocksteadyMigration {
 
         uint64_t totalReplayedBytes;
 
+        bool allDataPulled;
+
         bool pullRpcInProgress;
 
         uint32_t numReplaysInProgress;
@@ -137,6 +140,8 @@ class RocksteadyMigration {
     static const uint32_t MAX_NUM_PARTITIONS = 3;
 
     Tub<RocksteadyHashPartition> partitions[MAX_NUM_PARTITIONS];
+
+    uint32_t numCompletedPartitions;
 
     class RocksteadyPullRpc {
       public:
@@ -183,12 +188,31 @@ class RocksteadyMigration {
     class RocksteadyReplayRpc : public Transport::ServerRpc {
       public:
         explicit RocksteadyReplayRpc(Tub<RocksteadyHashPartition>* partition,
-                Tub<Buffer>* response, string localLocator)
+                Tub<Buffer>* response, Tub<SideLog>* sideLog,
+                string localLocator)
             : partition(partition)
             , responseBuffer(response)
+            , sideLog(sideLog)
             , completed(false)
             , localLocator(localLocator)
-        {}
+        {
+            WireFormat::RocksteadyMigrationReplay::Request* reqHdr =
+                    requestPayload.emplaceAppend<
+                    WireFormat::RocksteadyMigrationReplay::Request>();
+
+            reqHdr->common.opcode =
+                    WireFormat::RocksteadyMigrationReplay::opcode;
+            reqHdr->common.service =
+                    WireFormat::RocksteadyMigrationReplay::service;
+
+            reqHdr->bufferPtr = reinterpret_cast<uintptr_t>(responseBuffer);
+            reqHdr->sideLogPtr = reinterpret_cast<uintptr_t>(sideLog);
+
+            // XXX: This needs to change. Ideally, the pull rpc should return
+            // a certificate which goes in here.
+            SegmentCertificate certificate;
+            reqHdr->certificate = certificate;
+        }
 
         ~RocksteadyReplayRpc() {}
 
@@ -212,6 +236,8 @@ class RocksteadyMigration {
 
         Tub<Buffer>* responseBuffer;
 
+        Tub<SideLog>* sideLog;
+
         bool completed;
 
         const string localLocator;
@@ -227,6 +253,8 @@ class RocksteadyMigration {
     std::deque<Tub<RocksteadyReplayRpc>*> busyReplayRpcs;
 
     Tub<SideLog> sideLogs[MAX_PARALLEL_REPLAY_RPCS];
+
+    std::deque<Tub<SideLog>*> freeSideLogs;
 
     friend class RocksteadyMigrationManager;
     DISALLOW_COPY_AND_ASSIGN(RocksteadyMigration);

@@ -220,11 +220,16 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             break;
         case WireFormat::RocksteadyMigrationPullHashes::opcode:
             callHandler<WireFormat::RocksteadyMigrationPullHashes,
-            MasterService, &MasterService::rocksteadyMigrationPullHashes>(rpc);
+                        MasterService,
+                        &MasterService::rocksteadyMigrationPullHashes>(rpc);
             break;
         case WireFormat::RocksteadyPrepForMigration::opcode:
             callHandler<WireFormat::RocksteadyPrepForMigration, MasterService,
                         &MasterService::rocksteadyPrepForMigration>(rpc);
+            break;
+        case WireFormat::RocksteadyMigrationReplay::opcode:
+            callHandler<WireFormat::RocksteadyMigrationReplay, MasterService,
+                        &MasterService::rocksteadyMigrationReplay>(rpc);
             break;
         case WireFormat::SplitAndMigrateIndexlet::opcode:
             callHandler<WireFormat::SplitAndMigrateIndexlet, MasterService,
@@ -2193,6 +2198,30 @@ void MasterService::rocksteadyPrepForMigration(
     // pull tablet entries in parallel.
     respHdr->numHTBuckets = objectManager.getNumHashTableBuckets();
 
+    respHdr->common.status = STATUS_OK;
+    return;
+}
+
+void MasterService::rocksteadyMigrationReplay(
+        const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
+        WireFormat::RocksteadyMigrationReplay::Response* respHdr,
+        Rpc* rpc)
+{
+    Tub<Buffer>* replayBuffer =
+            reinterpret_cast<Tub<Buffer>*>(reqHdr->bufferPtr);
+    Tub<SideLog>* replaySideLog =
+            reinterpret_cast<Tub<SideLog>*>(reqHdr->sideLogPtr);
+    SegmentCertificate certificate = reqHdr->certificate;
+
+    const uint32_t bufferLength = (*replayBuffer)->size();
+    void* bufferMemory = (*replayBuffer)->getRange(0, bufferLength);
+
+    SegmentIterator segmentIt(bufferMemory, bufferLength, certificate);
+    // TODO: Check metadata integrity on the segment here.
+
+    objectManager.replaySegment(replaySideLog->get(), segmentIt);
+
+    respHdr->numReplayedBytes = bufferLength;
     respHdr->common.status = STATUS_OK;
     return;
 }

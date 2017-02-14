@@ -131,7 +131,8 @@ enum Opcode {
     TX_HINT_FAILED              = 79,
     ROCKSTEADY_PREP_FOR_MIGRATION = 80,
     ROCKSTEADY_MIGRATION_PULL_HASHES = 81,
-    ILLEGAL_RPC_TYPE            = 82, // 1 + the highest legitimate Opcode
+    ROCKSTEADY_MIGRATION_REPLAY = 82,
+    ILLEGAL_RPC_TYPE            = 83, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1486,6 +1487,23 @@ struct RocksteadyPrepForMigration {
         uint64_t safeVersion;  // Safe version on the recipient after the tablet
                                // was locked for migration.
         uint64_t numHTBuckets; // Number of hash table buckets on the recipient.
+    } __attribute__((packed));
+};
+
+struct RocksteadyMigrationReplay {
+    static const Opcode opcode = ROCKSTEADY_MIGRATION_REPLAY;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        Request() : common(), bufferPtr(), sideLogPtr(), certificate() {}
+
+        RequestCommon common;
+        uintptr_t bufferPtr;
+        uintptr_t sideLogPtr;
+        SegmentCertificate certificate;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t numReplayedBytes;
     } __attribute__((packed));
 };
 

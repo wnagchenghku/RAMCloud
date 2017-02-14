@@ -125,6 +125,7 @@ opcodeSymbol(uint32_t opcode)
                                     return "ROCKSTEADY_PREP_FOR_MIGRATION";
         case ROCKSTEADY_MIGRATION_PULL_HASHES:
                                     return "ROCKSTEADY_MIGRATION_PULL_HASHES";
+        case ROCKSTEADY_MIGRATION_REPLAY:  return "ROCKSTEADY_MIGRATION_REPLAY";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 
