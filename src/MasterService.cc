@@ -31,6 +31,7 @@
 #include "PerfCounter.h"
 #include "ProtoBuf.h"
 #include "RawMetrics.h"
+#include "RocksteadyMigrationManager.h"
 #include "Segment.h"
 #include "ServerRpcPool.h"
 #include "ShortMacros.h"
@@ -230,6 +231,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::RocksteadyMigrationReplay::opcode:
             callHandler<WireFormat::RocksteadyMigrationReplay, MasterService,
                         &MasterService::rocksteadyMigrationReplay>(rpc);
+            break;
+        case WireFormat::RocksteadyMigrateTablet::opcode:
+            callHandler<WireFormat::RocksteadyMigrateTablet, MasterService,
+                        &MasterService::rocksteadyMigrateTablet>(rpc);
             break;
         case WireFormat::SplitAndMigrateIndexlet::opcode:
             callHandler<WireFormat::SplitAndMigrateIndexlet, MasterService,
@@ -2146,6 +2151,90 @@ void MasterService::rocksteadyMigrationPullHashes(
     return;
 }
 
+void MasterService::rocksteadyMigrationReplay(
+        const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
+        WireFormat::RocksteadyMigrationReplay::Response* respHdr,
+        Rpc* rpc)
+{
+    Tub<Buffer>* replayBuffer =
+            reinterpret_cast<Tub<Buffer>*>(reqHdr->bufferPtr);
+    Tub<SideLog>* replaySideLog =
+            reinterpret_cast<Tub<SideLog>*>(reqHdr->sideLogPtr);
+    SegmentCertificate certificate = reqHdr->certificate;
+
+    const uint32_t bufferLength = (*replayBuffer)->size();
+    void* bufferMemory = (*replayBuffer)->getRange(0, bufferLength);
+
+    SegmentIterator segmentIt(bufferMemory, bufferLength, certificate);
+    // TODO: Check metadata integrity on the segment here.
+
+    objectManager.replaySegment(replaySideLog->get(), segmentIt);
+
+    respHdr->numReplayedBytes = bufferLength;
+    respHdr->common.status = STATUS_OK;
+    return;
+}
+
+void MasterService::rocksteadyMigrateTablet(
+        const WireFormat::RocksteadyMigrateTablet::Request* reqHdr,
+        WireFormat::RocksteadyMigrateTablet::Response* respHdr,
+        Rpc* rpc)
+{
+    const uint64_t tableId = reqHdr->tableId;
+    const uint64_t startKeyHash = reqHdr->startKeyHash;
+    const uint64_t endKeyHash = reqHdr->endKeyHash;
+    const ServerId sourceServerId(reqHdr->sourceServerId);
+
+    // Ignore requests to migrate data to self.
+    if (serverId == sourceServerId) {
+        LOG(WARNING, "Ignoring request to migrate tablet[0x%lx, 0x%lx] in"
+                " table %lu to self.", startKeyHash, endKeyHash, tableId);
+
+        respHdr->migrationStarted = false;
+        respHdr->common.status = STATUS_REQUEST_FORMAT_ERROR;
+        return;
+    }
+
+    bool tabletExists = tabletManager.getTablet(tableId, startKeyHash,
+                            endKeyHash);
+
+    // Ignore requests on tablets that this master already owns.
+    if (tabletExists) {
+        LOG(WARNING, "Ignoring request to migrate tablet[0x%lx, 0x%lx] in table"
+                " %lu from master %lu already owned by this master,",
+                startKeyHash, endKeyHash, tableId, sourceServerId.getId());
+
+        respHdr->migrationStarted = false;
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+        return;
+    }
+
+    bool migrationStarted = false;
+    {
+        Dispatch::Lock(context->dispatch);
+        context->rocksteadyMigrationManager->startMigration(sourceServerId,
+                tableId, startKeyHash, endKeyHash);
+    }
+
+    if (migrationStarted) {
+        LOG(NOTICE, "Started migration of tablet[0x%lx, 0x%lx] in table %lu"
+                " from master %lu.", startKeyHash, endKeyHash, tableId,
+                sourceServerId.getId());
+
+        respHdr->migrationStarted = migrationStarted;
+        respHdr->common.status = STATUS_OK;
+    } else {
+        LOG(NOTICE, "Failed to start migration of tablet[0x%lx, 0x%lx] in"
+                " table %lu from master %lu.", startKeyHash, endKeyHash,
+                tableId, sourceServerId.getId());
+
+        respHdr->migrationStarted = migrationStarted;
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+    }
+
+    return;
+}
+
 /**
  * Top level server method to handle the ROCKSTEADY_PREP_FOR_MIGRATION request.
  *
@@ -2178,6 +2267,7 @@ void MasterService::rocksteadyPrepForMigration(
 
     // Lock the tablet for migration and allow any in progress writes on it
     // to complete.
+    // TODO: What happens if the tablet is already locked for migration?
     bool changedState = tabletManager.changeState(tableId, startKeyHash,
                                 endKeyHash, TabletManager::NORMAL,
                                 TabletManager::LOCKED_FOR_MIGRATION);
@@ -2198,30 +2288,6 @@ void MasterService::rocksteadyPrepForMigration(
     // pull tablet entries in parallel.
     respHdr->numHTBuckets = objectManager.getNumHashTableBuckets();
 
-    respHdr->common.status = STATUS_OK;
-    return;
-}
-
-void MasterService::rocksteadyMigrationReplay(
-        const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
-        WireFormat::RocksteadyMigrationReplay::Response* respHdr,
-        Rpc* rpc)
-{
-    Tub<Buffer>* replayBuffer =
-            reinterpret_cast<Tub<Buffer>*>(reqHdr->bufferPtr);
-    Tub<SideLog>* replaySideLog =
-            reinterpret_cast<Tub<SideLog>*>(reqHdr->sideLogPtr);
-    SegmentCertificate certificate = reqHdr->certificate;
-
-    const uint32_t bufferLength = (*replayBuffer)->size();
-    void* bufferMemory = (*replayBuffer)->getRange(0, bufferLength);
-
-    SegmentIterator segmentIt(bufferMemory, bufferLength, certificate);
-    // TODO: Check metadata integrity on the segment here.
-
-    objectManager.replaySegment(replaySideLog->get(), segmentIt);
-
-    respHdr->numReplayedBytes = bufferLength;
     respHdr->common.status = STATUS_OK;
     return;
 }

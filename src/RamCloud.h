@@ -23,6 +23,7 @@
 #include "ObjectRpcWrapper.h"
 #include "OptionParser.h"
 #include "ServerMetrics.h"
+#include "ServerIdRpcWrapper.h"
 
 #include "LogMetrics.pb.h"
 #include "ServerConfig.pb.h"
@@ -128,6 +129,9 @@ class RamCloud {
             uint64_t* version = NULL);
     void remove(uint64_t tableId, const void* key, uint16_t keyLength,
             const RejectRules* rejectRules = NULL, uint64_t* version = NULL);
+    bool rocksteadyMigrateTablet(uint64_t tableId, uint64_t startKeyHash,
+            uint64_t endKeyHash, ServerId sourceServerId,
+            ServerId destinationServerId);
     void serverControlAll(WireFormat::ControlOp controlOp,
             const void* inputData = NULL, uint32_t inputLength = 0,
             Buffer* outputData = NULL);
@@ -951,6 +955,18 @@ class RemoveRpc : public LinearizableObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveRpc);
+};
+
+class RocksteadyMigrateTabletRpc : public ServerIdRpcWrapper {
+  public:
+    RocksteadyMigrateTabletRpc(RamCloud* ramcloud, uint64_t tableId,
+            uint64_t startKeyHash, uint64_t endKeyHash,
+            ServerId sourceServerId, ServerId destinationServerId);
+    ~RocksteadyMigrateTabletRpc() {}
+    bool wait();
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RocksteadyMigrateTabletRpc);
 };
 
 /**

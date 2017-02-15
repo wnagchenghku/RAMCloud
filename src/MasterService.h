@@ -266,13 +266,17 @@ class MasterService : public Service {
                 reqHdr,
                 WireFormat::RocksteadyMigrationPullHashes::Response* respHdr,
                 Rpc* rpc);
-    void rocksteadyPrepForMigration(
-                const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
-                WireFormat::RocksteadyPrepForMigration::Response* respHdr,
-                Rpc* rpc);
     void rocksteadyMigrationReplay(
                 const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
                 WireFormat::RocksteadyMigrationReplay::Response* respHdr,
+                Rpc* rpc);
+    void rocksteadyMigrateTablet(
+                const WireFormat::RocksteadyMigrateTablet::Request* reqHdr,
+                WireFormat::RocksteadyMigrateTablet::Response* respHdr,
+                Rpc* rpc);
+    void rocksteadyPrepForMigration(
+                const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
+                WireFormat::RocksteadyPrepForMigration::Response* respHdr,
                 Rpc* rpc);
     void splitAndMigrateIndexlet(
                 const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,

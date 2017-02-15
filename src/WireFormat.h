@@ -132,7 +132,8 @@ enum Opcode {
     ROCKSTEADY_PREP_FOR_MIGRATION = 80,
     ROCKSTEADY_MIGRATION_PULL_HASHES = 81,
     ROCKSTEADY_MIGRATION_REPLAY = 82,
-    ILLEGAL_RPC_TYPE            = 83, // 1 + the highest legitimate Opcode
+    ROCKSTEADY_MIGRATE_TABLET = 83,
+    ILLEGAL_RPC_TYPE            = 84, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1504,6 +1505,22 @@ struct RocksteadyMigrationReplay {
     struct Response {
         ResponseCommon common;
         uint64_t numReplayedBytes;
+    } __attribute__((packed));
+};
+
+struct RocksteadyMigrateTablet {
+    static const Opcode opcode = ROCKSTEADY_MIGRATE_TABLET;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t tableId;
+        uint64_t startKeyHash;
+        uint64_t endKeyHash;
+        uint64_t sourceServerId;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        bool migrationStarted;
     } __attribute__((packed));
 };
 
