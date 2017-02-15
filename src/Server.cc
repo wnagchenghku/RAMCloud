@@ -49,7 +49,7 @@ Server::Server(Context* context, const ServerConfig* config)
             config->coordinatorLocator.c_str(), config->clusterName.c_str());
     context->workerManager = new WorkerManager(context, config->maxCores-1);
     context->rocksteadyMigrationManager =
-            new RocksteadyMigrationManager(context);
+            new RocksteadyMigrationManager(context, config->localLocator);
 }
 
 /**

@@ -493,7 +493,9 @@ Segment::getEntry(uint32_t offset,
             Buffer* buffer,
             uint32_t* lengthWithMetadata,
             bool zeroCopy,
-            uint32_t* entryLength)
+            uint32_t* entryLength,
+            bool includeHeader,
+            uint32_t* headerLength)
 {
     EntryHeader header = getEntryHeader(offset);
     uint32_t entryDataOffset = offset +
@@ -504,8 +506,15 @@ Segment::getEntry(uint32_t offset,
     copyOut(offset + sizeof32(header), &entryDataLength,
         header.getLengthBytes());
 
-    if (buffer != NULL)
-        appendToBuffer(*buffer, entryDataOffset, entryDataLength, zeroCopy);
+    if (buffer != NULL) {
+        if (!includeHeader) {
+            appendToBuffer(*buffer, entryDataOffset, entryDataLength, zeroCopy);
+        } else {
+            uint32_t fullLength = sizeof32(header) + header.getLengthBytes() +
+                    entryDataLength;
+            appendToBuffer(*buffer, offset, fullLength, zeroCopy);
+        }
+    }
 
     if (lengthWithMetadata != NULL) {
         *lengthWithMetadata = entryDataLength +
@@ -515,6 +524,10 @@ Segment::getEntry(uint32_t offset,
 
     if (entryLength != NULL) {
         *entryLength = entryDataLength;
+    }
+
+    if (headerLength != NULL) {
+        *headerLength = sizeof32(header) + header.getLengthBytes();
     }
 
     return header.getType();
@@ -543,10 +556,12 @@ Segment::getEntry(Reference reference,
                   Buffer* buffer,
                   uint32_t* lengthWithMetadata,
                   bool zeroCopy,
-                  uint32_t* entryLength)
+                  uint32_t* entryLength,
+                  bool includeHeader,
+                  uint32_t* headerLength)
 {
     return getEntry(getOffset(reference), buffer, lengthWithMetadata,
-        zeroCopy, entryLength);
+        zeroCopy, entryLength, includeHeader, headerLength);
 }
 
 /**
@@ -982,7 +997,9 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
                              Buffer* buffer,
                              uint32_t* lengthWithMetadata,
                              bool zeroCopy,
-                             uint32_t* entryLength)
+                             uint32_t* entryLength,
+                             bool includeHeader,
+                             uint32_t* headerLength)
 {
     uint32_t segletSize = allocator->getSegletSize();
 
@@ -1021,13 +1038,23 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
                             dataLength);
 
                 if (!zeroCopy) {
-                    buffer->append(
-                        reinterpret_cast<void*>(reference + fullHeaderLength),
-                        dataLength);
+                    if (!includeHeader) {
+                        buffer->append(
+                            reinterpret_cast<void*>(reference +
+                            fullHeaderLength), dataLength);
+                    } else {
+                        buffer->append(
+                            reinterpret_cast<void*>(reference), fullLength);
+                    }
                 } else {
-                    buffer->appendExternal(
-                        reinterpret_cast<void*>(reference + fullHeaderLength),
-                        dataLength);
+                    if (!includeHeader) {
+                        buffer->appendExternal(
+                            reinterpret_cast<void*>(reference +
+                            fullHeaderLength), dataLength);
+                    } else {
+                        buffer->appendExternal(
+                            reinterpret_cast<void*>(reference), fullLength);
+                    }
                 }
             }
             if (lengthWithMetadata != NULL)
@@ -1035,6 +1062,9 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
 
             if (entryLength != NULL)
                 *entryLength = dataLength;
+
+            if (headerLength != NULL)
+                *headerLength = fullHeaderLength;
 
             return header->getType();
         }
@@ -1047,7 +1077,7 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
     LogSegment* segment = allocator->getOwnerSegment(
         reinterpret_cast<void*>(reference));
     return segment->getEntry(*this, buffer, lengthWithMetadata, zeroCopy,
-        entryLength);
+        entryLength, includeHeader, headerLength);
 }
 
 } // namespace

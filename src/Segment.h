@@ -244,7 +244,9 @@ class Segment {
                               Buffer* buffer,
                               uint32_t* lengthWithMetadata = NULL,
                               bool zeroCopy = false,
-                              uint32_t* entryLength = NULL);
+                              uint32_t* entryLength = NULL,
+                              bool includeHeader = false,
+                              uint32_t* headerLength = NULL);
 
         /**
          * Compare references for equality. Returns true if equal, else false.
@@ -299,12 +301,16 @@ class Segment {
                           Buffer* buffer,
                           uint32_t* lengthWithMetadata = NULL,
                           bool zeroCopy = false,
-                          uint32_t* entryLength = NULL);
+                          uint32_t* entryLength = NULL,
+                          bool includeHeader = false,
+                          uint32_t* headerLength = NULL);
     LogEntryType getEntry(Reference reference,
                           Buffer* buffer,
                           uint32_t* lengthWithMetadata = NULL,
                           bool zeroCopy = false,
-                          uint32_t* entryLength = NULL);
+                          uint32_t* entryLength = NULL,
+                          bool includeHeader = false,
+                          uint32_t* headerLength = NULL);
     static LogEntryType getEntry(const void* buffer,
                                  uint32_t* entryDataLength = NULL,
                                  uint32_t* lengthWithMetadata = NULL);

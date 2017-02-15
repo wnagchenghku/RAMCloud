@@ -3330,11 +3330,14 @@ ObjectManager::rocksteadyMigrationScanEntry(
 
     ObjectManager* objectManager = rocksteadyParams->objectManager;
 
+    bool includeHeader = true;
+    uint32_t headerLength = 0;
     uint32_t logEntryLength = 0;
 
     Log::Reference logEntryReference(reference);
     LogEntryType type = objectManager->log.getEntry(logEntryReference,
-            *(rocksteadyParams->response), zeroCopy, &logEntryLength);
+            *(rocksteadyParams->response), zeroCopy, &logEntryLength,
+            includeHeader, &headerLength);
 
     if (type != LOG_ENTRY_TYPE_OBJ) {
         (rocksteadyParams->response)->truncate(
@@ -3344,7 +3347,7 @@ ObjectManager::rocksteadyMigrationScanEntry(
     }
 
     Object object(*(rocksteadyParams->response),
-            rocksteadyParams->numBytesInResponse, /* Offset within buffer */
+            rocksteadyParams->numBytesInResponse + headerLength, /* Offset within buffer */
             logEntryLength);
 
     uint64_t objectPKHash = object.getPKHash();
@@ -3356,7 +3359,7 @@ ObjectManager::rocksteadyMigrationScanEntry(
         return;
     }
 
-    rocksteadyParams->numBytesInResponse += logEntryLength;
+    rocksteadyParams->numBytesInResponse += headerLength + logEntryLength;
 
     // This check includes the size of the response header.
     if (rocksteadyParams->numBytesInResponse > numRequestedBytes) {

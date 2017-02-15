@@ -115,7 +115,9 @@ class AbstractLog {
     LogEntryType getEntry(Reference reference,
                           Buffer& outBuffer,
                           bool zeroCopy = false,
-                          uint32_t* entryLength = NULL);
+                          uint32_t* entryLength = NULL,
+                          bool includeHeader = false,
+                          uint32_t* headerLength = NULL);
     uint64_t getSegmentId(Reference reference);
     bool hasSpaceFor(uint64_t objectSize);
     bool segmentExists(uint64_t segmentId);

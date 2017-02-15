@@ -17,7 +17,7 @@ class RocksteadyMigration;
 
 class RocksteadyMigrationManager : Dispatch::Poller {
   public:
-    explicit RocksteadyMigrationManager(Context* context);
+    explicit RocksteadyMigrationManager(Context* context, string localLocator);
     ~RocksteadyMigrationManager();
 
     int poll();
@@ -215,6 +215,7 @@ class RocksteadyMigration {
             // XXX: This needs to change. Ideally, the pull rpc should return
             // a certificate which goes in here.
             SegmentCertificate certificate;
+            certificate.segmentLength = (*responseBuffer)->size();
             reqHdr->certificate = certificate;
         }
 

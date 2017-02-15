@@ -4664,10 +4664,10 @@ TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_single) {
             masterServer->serverId, 99, 0UL, ~0UL, 0, 0, numHTBuckets - 1,
             10240, &nextHTBucket, &nextHTBucketEntry, &objectBuffer);
 
-    EXPECT_EQ(34UL, numReturnedBytes);
+    EXPECT_EQ(36UL, numReturnedBytes);
 
     objectBuffer.truncateFront(
-            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
+            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response) + 2);
 
     Object migratedObject(objectBuffer, 0, 34);
 
@@ -4720,10 +4720,11 @@ TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_parallel) {
         numReturnedBytes[i] = pullHashes[i]->wait(&(nextHTBucket[i]),
                 &(nextHTBucketEntry[i]));
 
-        EXPECT_EQ(35UL, numReturnedBytes[i]);
+        EXPECT_EQ(37UL, numReturnedBytes[i]);
 
         objectBuffer[i].truncateFront(
-                sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
+                sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response)
+                + 2);
 
         Object migratedObject(objectBuffer[i], 0, 35);
 
@@ -4759,10 +4760,10 @@ TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_responseSize) {
             masterServer->serverId, 99, 0UL, ~0UL, 0, 0, numHTBuckets - 1,
             50, &nextHTBucket, &nextHTBucketEntry, &objectBuffer);
 
-    EXPECT_EQ(35UL, numReturnedBytes);
+    EXPECT_EQ(37UL, numReturnedBytes);
 
     objectBuffer.truncateFront(
-            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
+            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response) + 2);
 
     Object migratedObject(objectBuffer, 0, 35UL);
 
@@ -4770,6 +4771,77 @@ TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_responseSize) {
             migratedObject.getKey()), 2));
     EXPECT_EQ("eragon", string(static_cast<const char *>(
             migratedObject.getValue()), 6));
+}
+
+/**
+ * This test checks if a buffer of log data returned by
+ * rocksteadyMigrationPullHashes can be interpreted as a segment and
+ * iterated over.
+ */
+TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_segment) {
+    service->tabletManager.addTablet(99, 0, ~0UL, TabletManager::NORMAL);
+    ramcloud->write(99, "00", 2, "eragon", 6, NULL, NULL, false);
+    ramcloud->write(99, "20", 2, "aragon", 6, NULL, NULL, false);
+    ramcloud->write(99, "60", 2, "perrin", 6, NULL, NULL, false);
+    ramcloud->write(99, "90", 2, "naruto", 6, NULL, NULL, false);
+
+    uint64_t numHTBuckets = 0;
+    uint64_t safeVersion = MasterClient::rocksteadyPrepForMigration(&context,
+            masterServer->serverId, 99, 0UL, ~0UL, &numHTBuckets);
+
+    EXPECT_EQ(5UL, safeVersion);
+    EXPECT_EQ(16384UL, numHTBuckets);
+
+    uint64_t nextHTBucket = 0;
+    uint64_t nextHTBucketEntry = 0;
+    uint32_t numReturnedBytes = 0;
+    Buffer objectBuffer;
+
+    numReturnedBytes = MasterClient::rocksteadyMigrationPullHashes(&context,
+            masterServer->serverId, 99, 0UL, ~0UL, 0, 0, numHTBuckets - 1,
+            500, &nextHTBucket, &nextHTBucketEntry, &objectBuffer);
+
+    EXPECT_EQ(148UL, numReturnedBytes); // 4 log entries(35B), each with a 2B
+                                        // header.
+
+    string returnedKey[] = { "00", "60", "90", "20" };
+    string returnedVal[] = { "eragon", "perrin", "naruto", "aragon" };
+
+    objectBuffer.truncateFront(
+            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
+
+    SegmentCertificate certificate;
+    uint32_t bufferLength = objectBuffer.size();
+    void* bufferMemory = objectBuffer.getRange(0, bufferLength);
+
+    certificate.segmentLength = bufferLength;
+    SegmentIterator it(bufferMemory, bufferLength, certificate);
+
+    // Iterate over the constructed segment and check if the checksum, key, and
+    // value of each returned log entry matches with what was written to the
+    // source.
+    uint32_t i = 0;
+    for(; !it.isDone(); it.next()) {
+        LogEntryType type = it.getType();
+
+        const Object::Header* objHeader =
+                it.getContiguous<Object::Header>(NULL, 0);
+
+        uint32_t expectedChecksum = Object::computeChecksum(
+                objHeader, it.getLength());
+
+        Object migratedObject(objHeader, it.getLength());
+
+        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
+        EXPECT_EQ(expectedChecksum, objHeader->checksum);
+        EXPECT_EQ(returnedKey[i], string(static_cast<const char *>(
+                migratedObject.getKey()), 2));
+        EXPECT_EQ(returnedVal[i], string(static_cast<const char *>(
+                migratedObject.getValue()), 6));
+
+        i++;
+    }
+    EXPECT_EQ(4U, i);
 }
 
 class MasterRecoverTest : public ::testing::Test {

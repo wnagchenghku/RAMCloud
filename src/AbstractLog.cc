@@ -273,10 +273,12 @@ LogEntryType
 AbstractLog::getEntry(Reference reference,
             Buffer& outBuffer,
             bool zeroCopy,
-            uint32_t* entryLength)
+            uint32_t* entryLength,
+            bool includeHeader,
+            uint32_t* headerLength)
 {
     return reference.getEntry(&segmentManager->getAllocator(), &outBuffer,
-            NULL, zeroCopy, entryLength);
+            NULL, zeroCopy, entryLength, includeHeader, headerLength);
 }
 
 /**

@@ -11,10 +11,11 @@ namespace RAMCloud {
  * Constructor for RocksteadyMigrationManager. The manager is registered
  * as a Poller with this master's dispatch thread.
  */
-RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context)
+RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context,
+        string localLocator)
     : Dispatch::Poller(context->dispatch, "RocksteadyMigrationManager")
     , context(context)
-    , localLocator(context->options->getLocalLocator())
+    , localLocator(localLocator)
     , migrationsInProgress()
 {
     ;
