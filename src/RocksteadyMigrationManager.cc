@@ -15,6 +15,7 @@ RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context,
         string localLocator)
     : Dispatch::Poller(context->dispatch, "RocksteadyMigrationManager")
     , context(context)
+    , tombstoneProtector()
     , localLocator(localLocator)
     , migrationsInProgress()
 {
@@ -55,6 +56,22 @@ int
 RocksteadyMigrationManager::poll()
 {
     int workPerformed = 0;
+
+    if (migrationsInProgress.size() == 0) {
+        if (tombstoneProtector) {
+            tombstoneProtector.destroy();
+
+            return 1;
+        }
+
+        return 0;
+    }
+
+    if (!tombstoneProtector) {
+        tombstoneProtector.construct(
+                &(context->getMasterService())->objectManager);
+        workPerformed++;
+    }
 
     for (auto migration = migrationsInProgress.begin();
         migration != migrationsInProgress.end(); ) {
@@ -215,6 +232,11 @@ RocksteadyMigration::prepare()
                     prepareSourceRpc->wait(&sourceNumHTBuckets));
             objectManager->raiseSafeVersion(*sourceSafeVersion);
 
+            RAMCLOUD_LOG(DEBUG, "Successfully raised safeVersion above %lu"
+                    " in preparation for migrating tablet[0x%lx, 0x%lx] in"
+                    " table %lu from master %lu.", *sourceSafeVersion,
+                    startKeyHash, endKeyHash, tableId, sourceServerId.getId());
+
             // TODO: Once the take-ownership rpc has been implemented, add
             // code here to invoke it.
 
@@ -230,14 +252,16 @@ RocksteadyMigration::prepare()
                 partitions[i].construct(partitionStartHTBucket,
                         partitionEndHTBucket);
 
-                RAMCLOUD_LOG(DEBUG, "Created hash table partition from bucket"
-                        " %lu to bucket %lu. (Migrating tablet [0x%lx, 0x%lx],"
-                        " tableId %lu)", partitionStartHTBucket,
+                RAMCLOUD_LOG(DEBUG, "Created hash table partition from"
+                        " bucket %lu to bucket %lu. (Migrating tablet [0x%lx,"
+                        " 0x%lx], tableId %lu)", partitionStartHTBucket,
                         partitionEndHTBucket, startKeyHash, endKeyHash,
                         tableId);
             }
 
             // The destination can now start migrating data.
+            // TODO: This code should be moved to after the destination has
+            // taken over ownership of the tablet under migration.
             phase = MIGRATING_DATA;
 
             return 1;
@@ -251,6 +275,10 @@ RocksteadyMigration::prepare()
         prepareSourceRpc.construct(context, sourceServerId, tableId,
                 startKeyHash, endKeyHash);
 
+        RAMCLOUD_LOG(DEBUG, "Sent out a prepare-for-migration request to"
+                " master %lu for tablet[0x%lx, 0x%lx] in table %lu.",
+                sourceServerId.getId(), startKeyHash, endKeyHash, tableId);
+
         return 1;
     }
 }
@@ -260,8 +288,9 @@ RocksteadyMigration::pullAndReplay()
 {
     int workDone = 0;
 
-    // Check if any of the in-progress pulls have completed.
-    for (size_t i = 0; i < busyPullRpcs.size(); i++) {
+    // STEP-1: Check if any of the in-progress pulls have completed.
+    size_t numBusyPullRpcs = busyPullRpcs.size();
+    for (size_t i = 0; i < numBusyPullRpcs; i++) {
         Tub<RocksteadyPullRpc>* pullRpc = busyPullRpcs.front();
 
         if ((*pullRpc)->rpc->isReady()) {
@@ -279,9 +308,20 @@ RocksteadyMigration::pullAndReplay()
             (*partition)->currentHTBucketEntry = nextHTBucketEntry;
             (*partition)->totalPulledBytes += numReturnedBytes;
 
+            LOG(DEBUG, "Pull request migrated %u Bytes in partition[%lu,"
+                    " %lu] (migrating tablet[0x%lx, 0x%lx] in table %lu).",
+                    numReturnedBytes, (*partition)->startHTBucket,
+                    (*partition)->endHTBucket, startKeyHash, endKeyHash,
+                    tableId);
+
             // There is nothing left to be pulled from within this partition.
             if ((*partition)->currentHTBucket > (*partition)->endHTBucket) {
                 (*partition)->allDataPulled = true;
+
+                LOG(DEBUG, "Finished pulling all data within partition[%lu,"
+                        " %lu] (migrating tablet[0x%lx, 0x%lx] in table %lu)",
+                        (*partition)->startHTBucket, (*partition)->endHTBucket,
+                        startKeyHash, endKeyHash, tableId);
             }
 
             // The response buffer is now eligible for replay.
@@ -295,14 +335,16 @@ RocksteadyMigration::pullAndReplay()
 
             workDone++;
         } else {
+            // This pull rpc has not completed yet.
             busyPullRpcs.push_back(pullRpc);
         }
 
         busyPullRpcs.pop_front();
-    }
+    } // End of STEP-1.
 
-    // Check if all in-progress replays have completed.
-    for (size_t i = 0; i < busyReplayRpcs.size(); i++) {
+    // STEP-2: Check if any in-progress replays have completed.
+    size_t numBusyReplayRpcs = busyReplayRpcs.size();
+    for (size_t i = 0; i < numBusyReplayRpcs; i++) {
         Tub<RocksteadyReplayRpc>* replayRpc = busyReplayRpcs.front();
 
         if ((*replayRpc)->isReady()) {
@@ -313,6 +355,12 @@ RocksteadyMigration::pullAndReplay()
             Tub<SideLog>* sideLog = (*replayRpc)->sideLog;
             uint32_t numReplayedBytes = (*responseBuffer)->size();
 
+            LOG(DEBUG, "Replay request replayed %u Bytes in partition[%lu,"
+                    " %lu] (Migrating tablet[0x%lx, 0x%lx] in table %lu)",
+                    numReplayedBytes, (*partition)->startHTBucket,
+                    (*partition)->endHTBucket, startKeyHash, endKeyHash,
+                    tableId);
+
             // Free up the response buffer so that it can be used for a pull
             // rpc.
             (*responseBuffer).destroy();
@@ -322,7 +370,16 @@ RocksteadyMigration::pullAndReplay()
 
             // All data within this partition has been pulled and replayed.
             if (((*partition)->allDataPulled == true) &&
-                    ((*partition)->freeReplayBuffers.size() == 0)) {
+                    ((*partition)->freeReplayBuffers.size() == 0) &&
+                    ((*partition)->numReplaysInProgress == 0)) {
+                LOG(DEBUG, "Finished replaying all data in partition[%lu,"
+                        " %lu]. Pulled %luB and replayed %luB (Migrating"
+                        " tablet[0x%lx, 0x%lx] in table %lu)",
+                        (*partition)->startHTBucket, (*partition)->endHTBucket,
+                        (*partition)->totalPulledBytes,
+                        (*partition)->totalReplayedBytes, startKeyHash,
+                        endKeyHash, tableId);
+
                 (*partition).destroy();
                 numCompletedPartitions++;
             }
@@ -340,15 +397,19 @@ RocksteadyMigration::pullAndReplay()
         }
 
         busyReplayRpcs.pop_front();
-    }
+    } // End of STEP-2.
 
-    // All partitions have completed pulling and replaying data.
+    // STEP-3: All partitions have completed pulling and replaying data.
     if (numCompletedPartitions == MAX_NUM_PARTITIONS) {
+        LOG(NOTICE, "Migration has completed on all partitions. Changing"
+                " state to TEAR_DOWN (Tablet[0x%lx, 0x%lx] in table %lu)",
+                startKeyHash, endKeyHash, tableId);
+
         phase = TEAR_DOWN;
         return workDone;
-    }
+    } // End of STEP-3.
 
-    // Issue a new batch of pulls if possible.
+    // STEP-4: Issue a new batch of pulls if possible.
     if (freePullRpcs.size() != 0 ) {
         // Identify the set of partitions on which a pull rpc can be
         // issued.
@@ -356,10 +417,11 @@ RocksteadyMigration::pullAndReplay()
 
         for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
             // A partition is eligible for a pull rpc only if
+            // - it still exists.
             // - there is no other pull rpc in progress on it.
             // - there is a free buffer on which a pull rpc can be issued.
             // - there is data left to be pulled.
-            if ((partitions[i]->pullRpcInProgress == false) &&
+            if (partitions[i] && (partitions[i]->pullRpcInProgress == false) &&
                     (partitions[i]->freePullBuffers.size() != 0) &&
                     (partitions[i]->allDataPulled == false)) {
                 candidatePartitions.push_back(&(partitions[i]));
@@ -393,8 +455,14 @@ RocksteadyMigration::pullAndReplay()
             // Issue the rpc.
             (*pullRpc).construct(context, sourceServerId, tableId, startKeyHash,
                     endKeyHash, currentHTBucket, currentHTBucketEntry,
-                    endHTBucket, 10 * 1024 /* Ask the source for 10 KB */ ,
+                    endHTBucket, 10 * 1024 /* Ask the source for 1 MB */ ,
                     responseBuffer, partition);
+
+            LOG(DEBUG, "Issued pull on partition[%lu, %lu] starting at"
+                    " entry %lu in bucket %lu (Migrating tablet[0x%lx, 0x%lx]"
+                    " in table %lu).", (*partition)->startHTBucket,
+                    (*partition)->endHTBucket, currentHTBucketEntry,
+                    currentHTBucket, startKeyHash, endKeyHash, tableId);
 
             // Update partition and pull rpc state.
             (*partition)->freePullBuffers.pop_front();
@@ -405,9 +473,9 @@ RocksteadyMigration::pullAndReplay()
 
             workDone++;
         }
-    }
+    } // End of STEP-4.
 
-    // Issue a new batch of replays if possible.
+    // STEP-5: Issue a new batch of replays if possible.
     if (freeReplayRpcs.size() != 0) {
         // Identify the set of partitions eligible for a replay.
         std::deque<Tub<RocksteadyHashPartition>*> candidatePartitions;
@@ -449,12 +517,17 @@ RocksteadyMigration::pullAndReplay()
 
             // First remove the pull rpc's response header.
             (*responseBuffer)->truncateFront(sizeof32(
-                    WireFormat::RocksteadyMigrationReplay::Response));
+                    WireFormat::RocksteadyMigrationPullHashes::Response));
 
             // Construct the rpc and hand it over to the worker manager.
             (*replayRpc).construct(partition, responseBuffer, sideLog,
                     localLocator);
             context->workerManager->handleRpc(replayRpc->get());
+
+            LOG(DEBUG, "Issued replay on partition[%lu, %lu] (Migrating"
+                    " tablet[0x%lx, 0x%lx] in table %lu).",
+                    (*partition)->startHTBucket, (*partition)->endHTBucket,
+                    startKeyHash, endKeyHash, tableId);
 
             (*partition)->freeReplayBuffers.pop_front();
             (*partition)->numReplaysInProgress++;
@@ -476,7 +549,7 @@ RocksteadyMigration::pullAndReplay()
 
             workDone++;
         }
-    }
+    } // End of STEP-5.
 
     return workDone == 0 ? 0 : 1;
 }
@@ -488,13 +561,13 @@ RocksteadyMigration::tearDown()
 
     // TODO: Add code to issue a completion rpc to the source here.
 
-    // Commit all the sidelogs to the main in-memory log.
-    for(uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
-        sideLogs[i]->commit();
-    }
+    // TODO: Add code to asynchronously commit sidelogs here
 
     phase = COMPLETED;
     workDone++;
+
+    RAMCLOUD_LOG(NOTICE, "Completed migration of tablet[0x%lx, 0x%lx]"
+            " in table %lu.", startKeyHash, endKeyHash, tableId);
 
     return workDone;
 }

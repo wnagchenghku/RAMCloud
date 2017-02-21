@@ -5887,6 +5887,42 @@ readVaryingKeyLength()
     }
 }
 
+// Perform a migration using rocksteady.
+void
+rocksteadySimpleMigration()
+{
+    uint16_t keyLengthB = 30;
+    uint32_t numObjects = 10000000;
+
+    uint64_t tableId = cluster->createTable("rocksteadySimpleMigration");
+    fillTable(tableId, numObjects, keyLengthB, objectSize);
+
+    ProtoBuf::ServerList protoServerList;
+    CoordinatorClient::getServerList(context, &protoServerList);
+
+    ServerList serverList(context);
+    serverList.applyServerList(protoServerList);
+
+    ServerId sourceServerId(3, 0);
+    ServerId targetServerId(4, 0);
+
+    uint64_t startKeyHash = 0UL;
+    uint64_t endKeyHash = ~0UL;
+
+    bool migrationStarted = cluster->rocksteadyMigrateTablet(tableId,
+            startKeyHash, endKeyHash, sourceServerId, targetServerId);
+
+    if (!migrationStarted) {
+        LOG(WARNING, "Migration of tablet[0x%lx, 0x%lx] from master %lu"
+                " to master %lu failed.", startKeyHash, endKeyHash,
+                sourceServerId.getId(), targetServerId.getId());
+
+        return;
+    }
+
+    Cycles::sleep(1000000 * 60);
+}
+
 // Write times for objects with string keys of different lengths.
 void
 writeVaryingKeyLength()
@@ -6384,6 +6420,7 @@ TestInfo tests[] = {
     {"readRandom", readRandom},
     {"readThroughput", readThroughput},
     {"readVaryingKeyLength", readVaryingKeyLength},
+    {"rocksteadySimpleMigration", rocksteadySimpleMigration},
     {"writeVaryingKeyLength", writeVaryingKeyLength},
     {"writeAsyncSync", writeAsyncSync},
     {"writeDistRandom", writeDistRandom},

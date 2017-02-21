@@ -4778,70 +4778,26 @@ TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_responseSize) {
  * rocksteadyMigrationPullHashes can be interpreted as a segment and
  * iterated over.
  */
-TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_segment) {
+TEST_F(MasterServiceTest, rocksteadyMigrateTablet) {
+    // Add a tablet and populate it with data.
     service->tabletManager.addTablet(99, 0, ~0UL, TabletManager::NORMAL);
     ramcloud->write(99, "00", 2, "eragon", 6, NULL, NULL, false);
     ramcloud->write(99, "20", 2, "aragon", 6, NULL, NULL, false);
     ramcloud->write(99, "60", 2, "perrin", 6, NULL, NULL, false);
     ramcloud->write(99, "90", 2, "naruto", 6, NULL, NULL, false);
 
-    uint64_t numHTBuckets = 0;
-    uint64_t safeVersion = MasterClient::rocksteadyPrepForMigration(&context,
-            masterServer->serverId, 99, 0UL, ~0UL, &numHTBuckets);
+    // Add a destination server.
+    ServerConfig destinationConfig = masterConfig;
+    destinationConfig.master.numReplicas = 2;
+    destinationConfig.localLocator = "mock:host=master2";
+    Server* destination = cluster.addServer(destinationConfig);
 
-    EXPECT_EQ(5UL, safeVersion);
-    EXPECT_EQ(16384UL, numHTBuckets);
+    // Migrate tablet from the source to the destination.
+    bool migrationStarted = ramcloud->rocksteadyMigrateTablet(99, 0, ~0UL,
+            masterServer->serverId, destination->serverId);
 
-    uint64_t nextHTBucket = 0;
-    uint64_t nextHTBucketEntry = 0;
-    uint32_t numReturnedBytes = 0;
-    Buffer objectBuffer;
-
-    numReturnedBytes = MasterClient::rocksteadyMigrationPullHashes(&context,
-            masterServer->serverId, 99, 0UL, ~0UL, 0, 0, numHTBuckets - 1,
-            500, &nextHTBucket, &nextHTBucketEntry, &objectBuffer);
-
-    EXPECT_EQ(148UL, numReturnedBytes); // 4 log entries(35B), each with a 2B
-                                        // header.
-
-    string returnedKey[] = { "00", "60", "90", "20" };
-    string returnedVal[] = { "eragon", "perrin", "naruto", "aragon" };
-
-    objectBuffer.truncateFront(
-            sizeof32(WireFormat::RocksteadyMigrationPullHashes::Response));
-
-    SegmentCertificate certificate;
-    uint32_t bufferLength = objectBuffer.size();
-    void* bufferMemory = objectBuffer.getRange(0, bufferLength);
-
-    certificate.segmentLength = bufferLength;
-    SegmentIterator it(bufferMemory, bufferLength, certificate);
-
-    // Iterate over the constructed segment and check if the checksum, key, and
-    // value of each returned log entry matches with what was written to the
-    // source.
-    uint32_t i = 0;
-    for(; !it.isDone(); it.next()) {
-        LogEntryType type = it.getType();
-
-        const Object::Header* objHeader =
-                it.getContiguous<Object::Header>(NULL, 0);
-
-        uint32_t expectedChecksum = Object::computeChecksum(
-                objHeader, it.getLength());
-
-        Object migratedObject(objHeader, it.getLength());
-
-        EXPECT_EQ(LOG_ENTRY_TYPE_OBJ, type);
-        EXPECT_EQ(expectedChecksum, objHeader->checksum);
-        EXPECT_EQ(returnedKey[i], string(static_cast<const char *>(
-                migratedObject.getKey()), 2));
-        EXPECT_EQ(returnedVal[i], string(static_cast<const char *>(
-                migratedObject.getValue()), 6));
-
-        i++;
-    }
-    EXPECT_EQ(4U, i);
+    // The migration should have started.
+    EXPECT_TRUE(migrationStarted);
 }
 
 class MasterRecoverTest : public ::testing::Test {

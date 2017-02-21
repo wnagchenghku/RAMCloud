@@ -28,6 +28,8 @@ class RocksteadyMigrationManager : Dispatch::Poller {
     // Shared RAMCloud information.
     Context* context;
 
+    Tub<ObjectManager::TombstoneProtector> tombstoneProtector;
+
     // Address of this RAMCloud master. Required by RocksteadyMigration.
     const string localLocator;
 
@@ -92,7 +94,7 @@ class RocksteadyMigration {
                 uint64_t endHTBucket)
             : startHTBucket(startHTBucket)
             , endHTBucket(endHTBucket)
-            , currentHTBucket(0)
+            , currentHTBucket(startHTBucket)
             , currentHTBucketEntry(0)
             , totalPulledBytes(0)
             , totalReplayedBytes(0)

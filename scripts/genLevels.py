@@ -77,6 +77,8 @@ callees = {
     "TX_REQUEST_ABORT":      ["BACKUP_WRITE"],
     "WRITE":                 ["BACKUP_WRITE", "INSERT_INDEX_ENTRY",
                               "REMOVE_INDEX_ENTRY"],
+    "ROCKSTEADY_MIGRATION_REPLAY":
+                             ["BACKUP_WRITE"],
 }
 
 # The following dictionary maps from the name of an opcode to its

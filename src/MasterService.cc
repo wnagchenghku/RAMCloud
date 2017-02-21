@@ -2212,8 +2212,8 @@ void MasterService::rocksteadyMigrateTablet(
     bool migrationStarted = false;
     {
         Dispatch::Lock(context->dispatch);
-        context->rocksteadyMigrationManager->startMigration(sourceServerId,
-                tableId, startKeyHash, endKeyHash);
+        migrationStarted = context->rocksteadyMigrationManager->startMigration(
+                sourceServerId, tableId, startKeyHash, endKeyHash);
     }
 
     if (migrationStarted) {
@@ -2254,6 +2254,14 @@ void MasterService::rocksteadyPrepForMigration(
     const uint64_t startKeyHash = reqHdr->startKeyHash;
     const uint64_t endKeyHash = reqHdr->endKeyHash;
 
+    LOG(NOTICE, "Received a prepare-for-migration request on"
+            " tablet[0x%lx, 0x%lx] in tablet %lu.", startKeyHash, endKeyHash,
+            tableId);
+
+    // Mark this rpc as read-only to avoid deadlock while waiting for appends
+    // to complete below.
+    rpc->worker->rpc->activities = Transport::ServerRpc::READ_ACTIVITY;
+
     // First check if this server owns the tablet being requested for.
     bool found = tabletManager.getTablet(tableId, startKeyHash,
                          endKeyHash, NULL);
@@ -2287,6 +2295,10 @@ void MasterService::rocksteadyPrepForMigration(
     // Return the number of hash table buckets so that the destination can
     // pull tablet entries in parallel.
     respHdr->numHTBuckets = objectManager.getNumHashTableBuckets();
+
+    LOG(NOTICE, "Successfully serviced a prepare-for-migration request on"
+            " tablet[0x%lx, 0x%lx] in tablet %lu.", startKeyHash, endKeyHash,
+            tableId);
 
     respHdr->common.status = STATUS_OK;
     return;

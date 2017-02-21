@@ -808,7 +808,8 @@ simple_tests = [
     Test("broadcast", broadcast),
     Test("netBandwidth", netBandwidth),
     Test("readAllToAll", readAllToAll),
-    Test("readNotFound", default)
+    Test("readNotFound", default),
+    Test("rocksteadySimpleMigration", default)
 ]
 
 graph_tests = [
