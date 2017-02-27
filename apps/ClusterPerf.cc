@@ -5892,10 +5892,23 @@ void
 rocksteadySimpleMigration()
 {
     uint16_t keyLengthB = 30;
-    uint32_t numObjects = 10000000;
+    uint32_t numObjects = 40000000;
 
     uint64_t tableId = cluster->createTable("rocksteadySimpleMigration");
     fillTable(tableId, numObjects, keyLengthB, objectSize);
+
+#if 0
+    for (uint32_t i = 0; i < numObjects; i++) {
+        char primaryKey[keyLengthB];
+        snprintf(primaryKey, keyLengthB, "p%0*d", keyLengthB - 2, i);
+
+        Buffer value;
+        fillBuffer(value, objectSize, tableId, primaryKey, keyLengthB);
+
+        cluster->write(tableId, primaryKey, keyLengthB,
+                value.getRange(0, objectSize), objectSize);
+    }
+#endif
 
     ProtoBuf::ServerList protoServerList;
     CoordinatorClient::getServerList(context, &protoServerList);
@@ -5920,7 +5933,27 @@ rocksteadySimpleMigration()
         return;
     }
 
-    Cycles::sleep(1000000 * 60);
+    Buffer beforeStatsBuffer;
+    cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+            &beforeStatsBuffer);
+
+    Cycles::sleep(1000000 * 10);
+
+    Buffer afterStatsBuffer;
+    cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+            &afterStatsBuffer);
+
+    PerfStats::Diff diff;
+    PerfStats::clusterDiff(&beforeStatsBuffer, &afterStatsBuffer, &diff);
+
+    for (uint64_t j = 0; j < diff["serverId"].size(); j++) {
+        printf("%f %.2f %.2f\n",
+                diff["serverId"][j],
+                diff["dispatchActiveCycles"][j] /
+                        diff["collectionTime"][j],
+                diff["workerActiveCycles"][j] /
+                        diff["collectionTime"][j]);
+    }
 }
 
 // Write times for objects with string keys of different lengths.
