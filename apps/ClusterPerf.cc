@@ -5933,15 +5933,19 @@ rocksteadySimpleMigration()
         return;
     }
 
+    Cycles::sleep(1000000 * 2);
+
     Buffer beforeStatsBuffer;
     cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
             &beforeStatsBuffer);
 
-    Cycles::sleep(1000000 * 10);
+    Cycles::sleep(1000000 * 5);
 
     Buffer afterStatsBuffer;
     cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
             &afterStatsBuffer);
+
+    Cycles::sleep(1000000 * 5);
 
     PerfStats::Diff diff;
     PerfStats::clusterDiff(&beforeStatsBuffer, &afterStatsBuffer, &diff);
