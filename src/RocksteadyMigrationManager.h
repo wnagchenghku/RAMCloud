@@ -54,6 +54,9 @@ class RocksteadyMigration {
     int pullAndReplay();
     int tearDown();
 
+    // Change as necessary.
+    LogLevel ll = DEBUG;
+
     Context* context;
 
     ObjectManager* objectManager;
