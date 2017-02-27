@@ -3363,6 +3363,7 @@ ObjectManager::rocksteadyMigrationScanEntry(
 
     // This check includes the size of the response header.
     if (rocksteadyParams->numBytesInResponse > numRequestedBytes) {
+        rocksteadyParams->nextBucketEntry++;
         throw RocksteadyResponseFullException(HERE);
     }
 
