@@ -327,10 +327,30 @@ RocksteadyMigration::pullAndReplay()
                         startKeyHash, endKeyHash, tableId);
             }
 
+#ifdef ROCKSTEADY_NO_REPLAY
+            (*((*pullRpc)->responseBuffer)).destroy();
+            (*partition)->freePullBuffers.push_back(
+                    (*pullRpc)->responseBuffer);
+            (*partition)->pullRpcInProgress = false;
+
+            if ((*partition)->allDataPulled) {
+                LOG(NOTICE, "Finished replaying all data in partition[%lu,"
+                        " %lu]. Pulled %lu Bytes and replayed %lu Bytes"
+                        " (Migrating tablet[0x%lx, 0x%lx] in table %lu).",
+                        (*partition)->startHTBucket, (*partition)->endHTBucket,
+                        (*partition)->totalPulledBytes,
+                        (*partition)->totalReplayedBytes, startKeyHash,
+                        endKeyHash, tableId);
+
+                (*partition).destroy();
+                numCompletedPartitions++;
+            }
+#else
             // The response buffer is now eligible for replay.
             (*partition)->freeReplayBuffers.push_back(
                     (*pullRpc)->responseBuffer);
             (*partition)->pullRpcInProgress = false;
+#endif
 
             // Add this rpc to the free list.
             (*pullRpc).destroy();
@@ -562,29 +582,6 @@ RocksteadyMigration::pullAndReplay()
             workDone++;
         }
     } // End of STEP-5.
-
-    for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
-        if (!partitions[i]) {
-            continue;
-        }
-
-        if (partitions[i]->pullRpcInProgress == false &&
-                partitions[i]->freePullBuffers.size() != 0 &&
-                partitions[i]->allDataPulled == false &&
-                freePullRpcs.size() != 0) {
-            LOG(WARNING, "The migration manager missed a pull rpc on"
-                    " partition[%lu, %lu]", partitions[i]->startHTBucket,
-                    partitions[i]->endHTBucket);
-        }
-
-        if (partitions[i]->numReplaysInProgress < PARTITION_PIPELINE_DEPTH &&
-                partitions[i]->freeReplayBuffers.size() != 0 &&
-                freeReplayRpcs.size() != 0) {
-            LOG(WARNING, "The migration manager missed a few replay rpcs on"
-                    " partition[%lu, %lu]", partitions[i]->startHTBucket,
-                    partitions[i]->endHTBucket);
-        }
-    }
 
     return workDone == 0 ? 0 : 1;
 }

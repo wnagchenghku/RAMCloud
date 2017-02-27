@@ -146,7 +146,7 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadyHashPartition);
     };
 
-    static const uint32_t MAX_NUM_PARTITIONS = 3;
+    static const uint32_t MAX_NUM_PARTITIONS = 6;
 
     Tub<RocksteadyHashPartition> partitions[MAX_NUM_PARTITIONS];
 
@@ -184,7 +184,7 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadyPullRpc);
     };
 
-    static const uint32_t MAX_PARALLEL_PULL_RPCS = 3;
+    static const uint32_t MAX_PARALLEL_PULL_RPCS = 6;
 
     Tub<RocksteadyPullRpc> pullRpcs[MAX_PARALLEL_PULL_RPCS];
 
