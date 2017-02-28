@@ -170,15 +170,15 @@ int
 main(void)
 {
     size_t numThreads[] = { 1, 2, 4, 8 };
-    // Approximately 6.97 GB of data including log entry headers.
-    uint32_t numObjects[] = { 40000000, 6900000 };
-    uint32_t objectSize[] = { 128, 1024 };
+    // Approximately 3.48 GB of data including log entry headers.
+    uint32_t numObjects[] = { 30400000, 20000000, 11900000, 6550000, 3450000 };
+    uint32_t objectSize[] = { 64, 128, 256, 512, 1024 };
     std::vector<double> pullThroughput;
 
     // First run all tests and save the throughput obtained in each run.
     for (auto nThreads : numThreads) {
         for (uint32_t i = 0; i < sizeof(numObjects) / sizeof(uint32_t); i++) {
-            RAMCloud::RocksteadyPullHashesBenchmark rphb("10240", "10%");
+            RAMCloud::RocksteadyPullHashesBenchmark rphb("5120", "10%");
             pullThroughput.push_back(
                     rphb.run(nThreads, numObjects[i], objectSize[i]));
         }
