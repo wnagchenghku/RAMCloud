@@ -1011,7 +1011,9 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
     if (expect_true(offset + fullHeaderLength <= segletSize)) {
         // Looks like the header fits. Now grab the length and see if
         // the whole entry fits.
+#if TESTING
         TEST_LOG("Contiguous entry");
+#endif
         uint32_t dataLength = 0;
         const uint64_t offsetOfLength = reference + sizeof(*header);
         switch (header->getLengthBytes()) {
@@ -1073,7 +1075,9 @@ Segment::Reference::getEntry(SegletAllocator* allocator,
     // Slow path for a discontiguous entry. Need to figure out which
     // Segment this belongs to so we can look up subsequent seglets.
     // This is likely to involve at least 3 additional cache misses.
+#if TESTING
     TEST_LOG("Discontiguous entry");
+#endif
     LogSegment* segment = allocator->getOwnerSegment(
         reinterpret_cast<void*>(reference));
     return segment->getEntry(*this, buffer, lengthWithMetadata, zeroCopy,

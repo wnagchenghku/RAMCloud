@@ -584,7 +584,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
     uint64_t startReplicationTicks = metrics->master.replicaManagerTicks;
     uint64_t startReplicationPostingWriteRpcTicks =
         metrics->master.replicationPostingWriteRpcTicks;
-    CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
+    // CycleCounter<RawMetric> _(&metrics->master.recoverSegmentTicks);
 
     if (tombstoneProtectorCount <= 0) {
         DIE("Must hold a TombstoneProtector when replaying segments");
@@ -593,8 +593,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
     // Metrics can be very expense (they're atomic operations), so we aggregate
     // as much as we can in local variables and update the counters once at the
     // end of this method.
-    uint64_t verifyChecksumTicks = 0;
-    uint64_t segmentAppendTicks = 0;
+    // uint64_t verifyChecksumTicks = 0;
+    // uint64_t segmentAppendTicks = 0;
     uint64_t recoverySegmentEntryCount = 0;
     uint64_t recoverySegmentEntryBytes = 0;
     uint64_t objectAppendCount = 0;
@@ -653,7 +653,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             }
 
             bool checksumIsValid = ({
-                CycleCounter<uint64_t> c(&verifyChecksumTicks);
+                // CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 Object::computeChecksum(recoveryObj, it.getLength()) ==
                     recoveryObj->checksum;
             });
@@ -701,10 +701,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     tombstone.assembleForLog(tombstoneBuffer);
                     sideLog->append(LOG_ENTRY_TYPE_OBJTOMB, tombstoneBuffer);
                     tombstoneAppendCount++;
-                    TableStats::increment(masterTableMetadata,
-                            key.getTableId(),
-                            tombstoneBuffer.size(),
-                            1);
+                    // TableStats::increment(masterTableMetadata,
+                    //         key.getTableId(),
+                    //         tombstoneBuffer.size(),
+                    //         1);
 
                     // Track the death of the object
                     liveObjectBytes -= currentBuffer.size();
@@ -717,15 +717,15 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             // the hash table to refer to it.
             Log::Reference newObjReference;
             {
-                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                // CycleCounter<uint64_t> _(&segmentAppendTicks);
                 sideLog->append(LOG_ENTRY_TYPE_OBJ,
                                 recoveryObj,
                                 it.getLength(),
                                 &newObjReference);
-                TableStats::increment(masterTableMetadata,
-                                      key.getTableId(),
-                                      it.getLength(),
-                                      1);
+                // TableStats::increment(masterTableMetadata,
+                //                       key.getTableId(),
+                //                       it.getLength(),
+                //                       1);
             }
             replace(lock, key, newObjReference);
 
@@ -748,7 +748,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
 
             ObjectTombstone recoverTomb(buffer);
             bool checksumIsValid = ({
-                CycleCounter<uint64_t> c(&verifyChecksumTicks);
+                // CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 recoverTomb.checkIntegrity();
             });
             if (expect_false(!checksumIsValid)) {
@@ -812,10 +812,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                             &newTombReference);
 
                     tombstoneAppendCount++;
-                    TableStats::increment(masterTableMetadata,
-                            key.getTableId(),
-                            tombstoneBuffer.size(),
-                            1);
+                    // TableStats::increment(masterTableMetadata,
+                    //         key.getTableId(),
+                    //         tombstoneBuffer.size(),
+                    //         1);
 
                     // Track the death of the object
                     liveObjectBytes -= currentBuffer.size();
@@ -856,10 +856,10 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                     &newTombReference);
 
             tombstoneAppendCount++;
-            TableStats::increment(masterTableMetadata,
-                    key.getTableId(),
-                    buffer.size(),
-                    1);
+            // TableStats::increment(masterTableMetadata,
+            //         key.getTableId(),
+            //         buffer.size(),
+            //         1);
             replace(lock, key, newTombReference);
         } else if (type == LOG_ENTRY_TYPE_SAFEVERSION) {
             // LOG_ENTRY_TYPE_SAFEVERSION is duplicated to all the
@@ -871,7 +871,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             uint64_t safeVersion = recoverSafeVer.getSafeVersion();
 
             bool checksumIsValid = ({
-                CycleCounter<uint64_t> _(&verifyChecksumTicks);
+                // CycleCounter<uint64_t> _(&verifyChecksumTicks);
                 recoverSafeVer.checkIntegrity();
             });
             if (expect_false(!checksumIsValid)) {
@@ -885,7 +885,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             // Sync can be delayed, because recovery can be replayed
             // with the same backup data when the recovery crashes on the way.
             {
-                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                // CycleCounter<uint64_t> _(&segmentAppendTicks);
                 sideLog->append(LOG_ENTRY_TYPE_SAFEVERSION, buffer);
             }
             // JIRA Issue: RAM-674:
@@ -914,14 +914,14 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                                                  type)) {
                 Log::Reference newRpcResultReference;
                 {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
+                    // CycleCounter<uint64_t> _(&segmentAppendTicks);
                     sideLog->append(LOG_ENTRY_TYPE_RPCRESULT,
                                     buffer,
                                     &newRpcResultReference);
-                    TableStats::increment(masterTableMetadata,
-                            rpcResult.getTableId(),
-                            buffer.size(),
-                            1);
+                    // TableStats::increment(masterTableMetadata,
+                    //         rpcResult.getTableId(),
+                    //         buffer.size(),
+                    //         1);
                 }
 
                 unackedRpcResults->recoverRecord(
@@ -987,14 +987,14 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 // write to log (with lazy backup flush) & update hash table
                 Log::Reference newReference;
                 {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
+                    // CycleCounter<uint64_t> _(&segmentAppendTicks);
                     sideLog->append(LOG_ENTRY_TYPE_PREP,
                                     buffer,
                                     &newReference);
-                    TableStats::increment(masterTableMetadata,
-                            key.getTableId(),
-                            buffer.size(),
-                            1);
+                    // TableStats::increment(masterTableMetadata,
+                    //         key.getTableId(),
+                    //         buffer.size(),
+                    //         1);
                 }
                 transactionManager->bufferOp(op.getTransactionId(),
                                              op.header.rpcId,
@@ -1029,14 +1029,14 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 // write to log (with lazy backup flush)
                 Log::Reference newReference;
                 {
-                    CycleCounter<uint64_t> _(&segmentAppendTicks);
+                    // CycleCounter<uint64_t> _(&segmentAppendTicks);
                     sideLog->append(LOG_ENTRY_TYPE_PREPTOMB,
                                     buffer,
                                     &newReference);
-                    TableStats::increment(masterTableMetadata,
-                            opTomb.header.tableId,
-                            buffer.size(),
-                            1);
+                    // TableStats::increment(masterTableMetadata,
+                    //         opTomb.header.tableId,
+                    //         buffer.size(),
+                    //         1);
                 }
                 transactionManager->removeOp(opTomb.header.clientLeaseId,
                                              opTomb.header.rpcId);
@@ -1052,7 +1052,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             TxDecisionRecord record(buffer);
 
             bool checksumIsValid = ({
-                CycleCounter<uint64_t> c(&verifyChecksumTicks);
+                // CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 record.checkIntegrity();
             });
             if (expect_false(!checksumIsValid)) {
@@ -1061,13 +1061,13 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
                 // TODO(cstlee): Should throw and try another segment replica?
             }
             if (txRecoveryManager->recoverRecovery(record)) {
-                CycleCounter<uint64_t> _(&segmentAppendTicks);
+                // CycleCounter<uint64_t> _(&segmentAppendTicks);
                 sideLog->append(LOG_ENTRY_TYPE_TXDECISION, buffer);
                 // TODO(cstlee) : What should we do if the append fails?
-                TableStats::increment(masterTableMetadata,
-                                      record.getTableId(),
-                                      buffer.size(),
-                                      1);
+                // TableStats::increment(masterTableMetadata,
+                //                       record.getTableId(),
+                //                       buffer.size(),
+                //                       1);
             }
         } else if (type == LOG_ENTRY_TYPE_TXPLIST) {
             Buffer buffer;
@@ -1076,7 +1076,7 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
             ParticipantList participantList(buffer);
 
             bool checksumIsValid = ({
-                CycleCounter<uint64_t> c(&verifyChecksumTicks);
+                // CycleCounter<uint64_t> c(&verifyChecksumTicks);
                 participantList.checkIntegrity();
             });
 
@@ -1105,8 +1105,8 @@ ObjectManager::replaySegment(SideLog* sideLog, SegmentIterator& it,
     metrics->master.recoverSegmentPostingWriteRpcTicks +=
         metrics->master.replicationPostingWriteRpcTicks -
         startReplicationPostingWriteRpcTicks;
-    metrics->master.verifyChecksumTicks += verifyChecksumTicks;
-    metrics->master.segmentAppendTicks += segmentAppendTicks;
+    // metrics->master.verifyChecksumTicks += verifyChecksumTicks;
+    // metrics->master.segmentAppendTicks += segmentAppendTicks;
     metrics->master.recoverySegmentEntryCount += recoverySegmentEntryCount;
     metrics->master.recoverySegmentEntryBytes += recoverySegmentEntryBytes;
     metrics->master.objectAppendCount += objectAppendCount;
@@ -3316,6 +3316,10 @@ ObjectManager::rocksteadyMigrationScanEntry(
     RocksteadyPullHashesParameters* rocksteadyParams =
             reinterpret_cast<RocksteadyPullHashesParameters*>(cookie);
 
+    if (rocksteadyParams->responseFull) {
+        return;
+    }
+
     if (rocksteadyParams->nextBucketEntry <
         rocksteadyParams->startBucketEntry) {
         rocksteadyParams->nextBucketEntry++;
@@ -3326,6 +3330,7 @@ ObjectManager::rocksteadyMigrationScanEntry(
     uint64_t tableId = rocksteadyParams->tableId;
     uint64_t startKeyHash = rocksteadyParams->startKeyHash;
     uint64_t endKeyHash = rocksteadyParams->endKeyHash;
+
     uint64_t numRequestedBytes = rocksteadyParams->numRequestedBytes;
 
     ObjectManager* objectManager = rocksteadyParams->objectManager;
@@ -3347,7 +3352,7 @@ ObjectManager::rocksteadyMigrationScanEntry(
     }
 
     Object object(*(rocksteadyParams->response),
-            rocksteadyParams->numBytesInResponse + headerLength, /* Offset within buffer */
+            rocksteadyParams->numBytesInResponse + headerLength, // Offset within buffer
             logEntryLength);
 
     uint64_t objectPKHash = object.getPKHash();
@@ -3363,8 +3368,8 @@ ObjectManager::rocksteadyMigrationScanEntry(
 
     // This check includes the size of the response header.
     if (rocksteadyParams->numBytesInResponse > numRequestedBytes) {
-        rocksteadyParams->nextBucketEntry++;
-        throw RocksteadyResponseFullException(HERE);
+        rocksteadyParams->responseFull = true;
+        // throw RocksteadyResponseFullException(HERE);
     }
 
     rocksteadyParams->nextBucketEntry++;
@@ -3397,11 +3402,15 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
             numBytesInResponse, numRequestedBytes, response, &lock,
             this);
 
-        try {
-            objectMap.forEachInBucket(
-                    ObjectManager::rocksteadyMigrationScanEntry,
-                    reinterpret_cast<void*>(&rocksteadyParams), bucketIndex);
-        } catch (RocksteadyResponseFullException &e) {
+        // try {
+
+        objectMap.forEachInBucket(
+                ObjectManager::rocksteadyMigrationScanEntry,
+                reinterpret_cast<void*>(&rocksteadyParams), bucketIndex);
+
+        // } catch (RocksteadyResponseFullException &e) {
+
+        if (rocksteadyParams.responseFull) {
             numBytesInResponse = rocksteadyParams.numBytesInResponse;
 
             // XXX: As a result of these return values, consecutive rpcs on
@@ -3412,6 +3421,8 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
             *nextHTBucketEntry = rocksteadyParams.nextBucketEntry;
             return numReturnedBytes = numBytesInResponse - respHdrSize;
         }
+
+        // }
 
         startBucketEntry = 0;
         numBytesInResponse = rocksteadyParams.numBytesInResponse;

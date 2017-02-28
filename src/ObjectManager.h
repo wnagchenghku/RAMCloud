@@ -286,6 +286,8 @@ class ObjectManager : public LogEntryHandlers,
     struct RocksteadyPullHashesParameters {
         bool zeroCopy;
 
+        bool responseFull;
+
         uint64_t tableId;
 
         uint64_t startKeyHash;
@@ -312,6 +314,7 @@ class ObjectManager : public LogEntryHandlers,
                 uint64_t numRequestedBytes, Buffer* response,
                 HashTableBucketLock* lock, ObjectManager* objectManager)
             : zeroCopy(zeroCopy)
+            , responseFull(false)
             , tableId(tableId)
             , startKeyHash(startKeyHash)
             , endKeyHash(endKeyHash)
