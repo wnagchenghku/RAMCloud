@@ -367,6 +367,12 @@ WorkerManager::waitForRpc(double timeoutSeconds) {
     }
 }
 
+size_t
+WorkerManager::testingNumIdleWorkers()
+{
+    return maxCores - busyThreads.size();
+}
+
 /**
  * This is the top-level method for worker threads.  It repeatedly waits for
  * an RPC to be assigned to it, then executes that RPC and communicates its

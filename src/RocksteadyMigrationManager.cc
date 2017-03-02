@@ -5,6 +5,14 @@
 #include "MasterService.h"
 #include "RocksteadyMigrationManager.h"
 
+// Uncomment to disable replay of migrated data. Useful for benchmarking
+// RocksteadyMigrationPullHashesRpc() throughput.
+// #define ROCKSTEADY_NO_REPLAY
+
+// Uncomment to enable a check for whether the migration manager is work
+// conserving at the target machine.
+// #define ROCKSTEADY_CHECK_WORK_CONSERVING
+
 namespace RAMCloud {
 
 /**
@@ -582,6 +590,29 @@ RocksteadyMigration::pullAndReplay()
             workDone++;
         }
     } // End of STEP-5.
+
+#ifdef ROCKSTEADY_CHECK_WORK_CONSERVING
+    size_t numIdleWorkers = context->workerManager->testingNumIdleWorkers();
+    if (numIdleWorkers > 0) {
+        uint64_t numQueuedBuffers = 0;
+        for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
+            if (!partitions[i]) {
+                continue;
+            }
+
+            if ((partitions[i]->freeReplayBuffers).size() != 0) {
+                numQueuedBuffers += (partitions[i]->freeReplayBuffers).size();
+            }
+        }
+
+        if (numQueuedBuffers > 0) {
+            LOG(WARNING, "Migration manager is not work conserving. There are"
+                    " %lu data buffers waiting for replay inspite of there"
+                    " being %lu idle worker threads.", numQueuedBuffers,
+                    numIdleWorkers);
+        }
+    };
+#endif
 
     return workDone == 0 ? 0 : 1;
 }

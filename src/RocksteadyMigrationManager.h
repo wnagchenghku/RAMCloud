@@ -146,7 +146,7 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadyHashPartition);
     };
 
-    static const uint32_t MAX_NUM_PARTITIONS = 6;
+    static const uint32_t MAX_NUM_PARTITIONS = 8;
 
     Tub<RocksteadyHashPartition> partitions[MAX_NUM_PARTITIONS];
 
@@ -184,7 +184,7 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadyPullRpc);
     };
 
-    static const uint32_t MAX_PARALLEL_PULL_RPCS = 6;
+    static const uint32_t MAX_PARALLEL_PULL_RPCS = 8;
 
     Tub<RocksteadyPullRpc> pullRpcs[MAX_PARALLEL_PULL_RPCS];
 
@@ -192,7 +192,7 @@ class RocksteadyMigration {
 
     std::deque<Tub<RocksteadyPullRpc>*> busyPullRpcs;
 
-    static const uint32_t MAX_PARALLEL_REPLAY_RPCS = 6;
+    static const uint32_t MAX_PARALLEL_REPLAY_RPCS = 16;
 
     class RocksteadyReplayRpc : public Transport::ServerRpc {
       public:

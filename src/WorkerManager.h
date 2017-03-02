@@ -46,6 +46,7 @@ class WorkerManager : Dispatch::Poller {
     int poll();
     void setServerId(ServerId serverId);
     Transport::ServerRpc* waitForRpc(double timeoutSeconds);
+    size_t testingNumIdleWorkers();
 
   PROTECTED:
   static inline void timeTrace(const char* format,
