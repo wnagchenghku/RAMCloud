@@ -27,6 +27,9 @@
 
 namespace RAMCloud {
 
+// forward declaration.
+class RocksteadySegmentCertificate;
+
 /**
  * Each segment's first entry is a header that contains vital metadata such
  * as the log the segment is a part of, the segment's identifier within that
@@ -123,6 +126,10 @@ class SegmentCertificate {
 
     friend class Segment;
     friend class SegmentIterator;
+
+    /// Rocksteady requires access to a certificates checksum in order to
+    /// safely migrate and replay a buffer full of log entries.
+    friend class RocksteadySegmentCertificate;
 } __attribute__((__packed__));
 static_assert(sizeof(SegmentCertificate) == 8,
               "Unexpected padding in SegmentCertificate");

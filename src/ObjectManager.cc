@@ -3413,7 +3413,7 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
         if (rocksteadyParams.responseFull) {
             numBytesInResponse = rocksteadyParams.numBytesInResponse;
 
-            // XXX: As a result of these return values, consecutive rpcs on
+            // TODO: As a result of these return values, consecutive rpcs on
             // the same portion/chunk of the hash table might overlap over a
             // few entries - entries are never retransmitted though. A hash
             // table bucket iterator will have to be implemented to fix this.
