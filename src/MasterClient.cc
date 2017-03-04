@@ -801,12 +801,13 @@ MasterClient::rocksteadyMigrationPullHashes(
         uint64_t startKeyHash, uint64_t endKeyHash, uint64_t currentHTBucket,
         uint64_t currentHTBucketEntry, uint64_t endHTBucket,
         uint32_t numRequestedBytes, uint64_t* nextHTBucket,
-        uint64_t* nextHTBucketEntry, Buffer* response)
+        uint64_t* nextHTBucketEntry, Buffer* response,
+        SegmentCertificate* certificate)
 {
     RocksteadyMigrationPullHashesRpc rpc(context, sourceServerId, tableId,
             startKeyHash, endKeyHash, currentHTBucket, currentHTBucketEntry,
             endHTBucket, numRequestedBytes, response);
-    return rpc.wait(nextHTBucket, nextHTBucketEntry);
+    return rpc.wait(nextHTBucket, nextHTBucketEntry, certificate);
 }
 
 /**
@@ -859,13 +860,18 @@ RocksteadyMigrationPullHashesRpc::RocksteadyMigrationPullHashesRpc(
  */
 uint32_t
 RocksteadyMigrationPullHashesRpc::wait(uint64_t* nextHTBucket,
-        uint64_t* nextHTBucketEntry)
+        uint64_t* nextHTBucketEntry, SegmentCertificate* certificate)
 {
     waitAndCheckErrors();
     const WireFormat::RocksteadyMigrationPullHashes::Response* respHdr(
             getResponseHeader<WireFormat::RocksteadyMigrationPullHashes>());
     *nextHTBucket = respHdr->nextHTBucket;
     *nextHTBucketEntry = respHdr->nextHTBucketEntry;
+
+    if(certificate != NULL) {
+        *certificate = respHdr->certificate;
+    }
+
     return respHdr->numReturnedBytes;
 }
 

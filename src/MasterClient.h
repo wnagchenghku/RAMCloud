@@ -83,7 +83,7 @@ class MasterClient {
             uint64_t currentHTBucket, uint64_t currentHTBucketEntry,
             uint64_t endHTBucket, uint32_t numRequestedBytes,
             uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry,
-            Buffer* response);
+            Buffer* response, SegmentCertificate* certificate=NULL);
     static uint64_t rocksteadyPrepForMigration(Context* context,
             ServerId sourceServerId, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
@@ -293,7 +293,8 @@ class RocksteadyMigrationPullHashesRpc : public ServerIdRpcWrapper {
             uint64_t endHTBucket, uint32_t numRequestedBytes,
             Buffer* response);
     ~RocksteadyMigrationPullHashesRpc() {}
-    uint32_t wait(uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry);
+    uint32_t wait(uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry,
+            SegmentCertificate* certificate=NULL);
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RocksteadyMigrationPullHashesRpc);

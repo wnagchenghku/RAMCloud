@@ -57,12 +57,13 @@ class RocksteadyPullHashesBenchmark {
             uint64_t nextHTBucket;
             uint64_t nextHTBucketEntry;
             Buffer respBuffer;
+            SegmentCertificate certificate;
 
             totalPulledBytes +=
                     service->objectManager.rocksteadyMigrationPullHashes(
                     tableId, 0UL, ~0UL, currentHTBucket, currentHTBucketEntry,
                     endHTBucket, 0, 10 * 1024, &respBuffer, &nextHTBucket,
-                    &nextHTBucketEntry);
+                    &nextHTBucketEntry, &certificate);
 
             currentHTBucket = nextHTBucket;
             currentHTBucketEntry = nextHTBucketEntry;

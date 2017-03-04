@@ -3330,8 +3330,9 @@ ObjectManager::rocksteadyMigrationScanEntry(
     uint64_t tableId = rocksteadyParams->tableId;
     uint64_t startKeyHash = rocksteadyParams->startKeyHash;
     uint64_t endKeyHash = rocksteadyParams->endKeyHash;
-
     uint64_t numRequestedBytes = rocksteadyParams->numRequestedBytes;
+
+    RocksteadyBufferCertificate* certificate = rocksteadyParams->certificate;
 
     ObjectManager* objectManager = rocksteadyParams->objectManager;
 
@@ -3364,6 +3365,7 @@ ObjectManager::rocksteadyMigrationScanEntry(
         return;
     }
 
+    certificate->updateChecksum(type, logEntryLength);
     rocksteadyParams->numBytesInResponse += headerLength + logEntryLength;
 
     // This check includes the size of the response header.
@@ -3382,12 +3384,15 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
                 uint64_t currentHTBucket, uint64_t currentHTBucketEntry,
                 uint64_t endHTBucket, uint32_t respHdrSize,
                 uint32_t numRequestedBytes, Buffer* response,
-                uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry)
+                uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry,
+                SegmentCertificate* certificate)
 {
     bool zeroCopy = true;
     uint32_t numReturnedBytes = 0;
     uint32_t numBytesInResponse = respHdrSize;
     uint64_t startBucketEntry = currentHTBucketEntry;
+
+    RocksteadyBufferCertificate bufferCertificate;
 
     for (uint64_t bucketIndex = currentHTBucket;
         bucketIndex <= endHTBucket; bucketIndex++) {
@@ -3399,8 +3404,8 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
         HashTableBucketLock lock(*this, bucketIndex);
         RocksteadyPullHashesParameters rocksteadyParams(zeroCopy,
             tableId, startKeyHash, endKeyHash, startBucketEntry,
-            numBytesInResponse, numRequestedBytes, response, &lock,
-            this);
+            numBytesInResponse, numRequestedBytes, response,
+            &bufferCertificate, &lock, this);
 
         // try {
 
@@ -3419,6 +3424,10 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
             // table bucket iterator will have to be implemented to fix this.
             *nextHTBucket = bucketIndex;
             *nextHTBucketEntry = rocksteadyParams.nextBucketEntry;
+
+            bufferCertificate.createSegmentCertificate(
+                    numBytesInResponse - respHdrSize, certificate);
+
             return numReturnedBytes = numBytesInResponse - respHdrSize;
         }
 
@@ -3430,6 +3439,10 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
 
     *nextHTBucket = endHTBucket + 1;
     *nextHTBucketEntry = 0;
+
+    bufferCertificate.createSegmentCertificate(
+            numBytesInResponse - respHdrSize, certificate);
+
     return numReturnedBytes = numBytesInResponse - respHdrSize;
 }
 

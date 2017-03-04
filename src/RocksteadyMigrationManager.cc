@@ -489,7 +489,7 @@ RocksteadyMigration::pullAndReplay()
             // Issue the rpc.
             (*pullRpc).construct(context, sourceServerId, tableId, startKeyHash,
                     endKeyHash, currentHTBucket, currentHTBucketEntry,
-                    endHTBucket, 10 * 1024 /* Ask the source for 1 MB */ ,
+                    endHTBucket, 10 * 1024 /* Ask the source for 1 MB */,
                     responseBuffer, partition);
 
             LOG(ll, "Issued pull on partition[%lu, %lu] starting at"
@@ -552,13 +552,22 @@ RocksteadyMigration::pullAndReplay()
             Tub<Buffer>* responseBuffer =
                     (*partition)->freeReplayBuffers.front();
 
-            // First remove the pull rpc's response header.
+            // First, retrieve the certificate for this buffer of log entries.
+            void* respHdr = (*responseBuffer)->getRange(0, sizeof32(
+                    WireFormat::RocksteadyMigrationPullHashes::Response));
+
+            SegmentCertificate certificate =
+                    (reinterpret_cast<
+                    WireFormat::RocksteadyMigrationPullHashes::Response*>(
+                    respHdr))->certificate;
+
+            // Remove the pull rpc's response header.
             (*responseBuffer)->truncateFront(sizeof32(
                     WireFormat::RocksteadyMigrationPullHashes::Response));
 
             // Construct the rpc and hand it over to the worker manager.
             (*replayRpc).construct(partition, responseBuffer, sideLog,
-                    localLocator);
+                    localLocator, certificate);
             context->workerManager->handleRpc(replayRpc->get());
 
             LOG(ll, "Issued replay on partition[%lu, %lu] (Migrating"

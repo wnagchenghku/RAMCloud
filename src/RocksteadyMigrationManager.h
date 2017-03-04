@@ -198,7 +198,7 @@ class RocksteadyMigration {
       public:
         explicit RocksteadyReplayRpc(Tub<RocksteadyHashPartition>* partition,
                 Tub<Buffer>* response, Tub<SideLog>* sideLog,
-                string localLocator)
+                string localLocator, SegmentCertificate certificate)
             : partition(partition)
             , responseBuffer(response)
             , sideLog(sideLog)
@@ -216,11 +216,6 @@ class RocksteadyMigration {
 
             reqHdr->bufferPtr = reinterpret_cast<uintptr_t>(responseBuffer);
             reqHdr->sideLogPtr = reinterpret_cast<uintptr_t>(sideLog);
-
-            // XXX: This needs to change. Ideally, the pull rpc should return
-            // a certificate which goes in here.
-            SegmentCertificate certificate;
-            certificate.segmentLength = (*responseBuffer)->size();
             reqHdr->certificate = certificate;
         }
 

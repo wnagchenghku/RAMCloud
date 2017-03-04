@@ -28,6 +28,7 @@
 #include "SegmentManager.h"
 #include "SegmentIterator.h"
 #include "ReplicaManager.h"
+#include "RocksteadyMetadata.h"
 #include "RpcResult.h"
 #include "ServerConfig.h"
 #include "SpinLock.h"
@@ -111,7 +112,8 @@ class ObjectManager : public LogEntryHandlers,
                 uint64_t currentHTBucket, uint64_t currentHTBucketEntry,
                 uint64_t endHTBucket, uint32_t respHdrSize,
                 uint32_t numRequestedBytes, Buffer* response,
-                uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry);
+                uint64_t* nextHTBucket, uint64_t* nextHTBucketEntry,
+                SegmentCertificate* certificate);
 
     /**
      * The following three methods are used when multiple log entries
@@ -304,6 +306,8 @@ class ObjectManager : public LogEntryHandlers,
 
         Buffer* response;
 
+        RocksteadyBufferCertificate* certificate;
+
         HashTableBucketLock* lock;
 
         ObjectManager* objectManager;
@@ -312,6 +316,7 @@ class ObjectManager : public LogEntryHandlers,
                 uint64_t startKeyHash, uint64_t endKeyHash,
                 uint64_t startBucketEntry, uint32_t numBytesInResponse,
                 uint64_t numRequestedBytes, Buffer* response,
+                RocksteadyBufferCertificate* certificate,
                 HashTableBucketLock* lock, ObjectManager* objectManager)
             : zeroCopy(zeroCopy)
             , responseFull(false)
@@ -323,6 +328,7 @@ class ObjectManager : public LogEntryHandlers,
             , numBytesInResponse(numBytesInResponse)
             , numRequestedBytes(numRequestedBytes)
             , response(response)
+            , certificate(certificate)
             , lock(lock)
             , objectManager(objectManager)
         {}

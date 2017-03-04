@@ -2089,6 +2089,7 @@ void MasterService::rocksteadyMigrationPullHashes(
     uint64_t nextHTBucketEntry = 0;
     uint32_t numReturnedBytes = 0;
     Buffer* response = rpc->replyPayload;
+    SegmentCertificate certificate;
 
     // TODO: A spinlock is acquired inside getTablet. Can/Should this call be
     // elliminated?
@@ -2141,11 +2142,12 @@ void MasterService::rocksteadyMigrationPullHashes(
                             tableId, startKeyHash, endKeyHash, currentHTBucket,
                             currentHTBucketEntry, endHTBucket, respHdrSize,
                             numRequestedBytes, response, &nextHTBucket,
-                            &nextHTBucketEntry);
+                            &nextHTBucketEntry, &certificate);
 
     respHdr->nextHTBucket = nextHTBucket;
     respHdr->nextHTBucketEntry = nextHTBucketEntry;
     respHdr->numReturnedBytes = numReturnedBytes;
+    respHdr->certificate = certificate;
     respHdr->common.status = STATUS_OK;
 
     return;
@@ -2166,7 +2168,7 @@ void MasterService::rocksteadyMigrationReplay(
     void* bufferMemory = (*replayBuffer)->getRange(0, bufferLength);
 
     SegmentIterator segmentIt(bufferMemory, bufferLength, certificate);
-    // TODO: Check metadata integrity on the segment here.
+    segmentIt.checkMetadataIntegrity();
 
     objectManager.replaySegment(replaySideLog->get(), segmentIt);
 

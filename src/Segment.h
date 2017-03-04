@@ -27,7 +27,6 @@
 #include "Seglet.h"
 #include "SegletAllocator.h"
 #include "Tub.h"
-#include "RocksteadyMetadata.h"
 
 namespace RAMCloud {
 
@@ -451,7 +450,7 @@ class Segment {
 
     /// Access to the definition of EntryHeader is required for rocksteady to
     /// be able to create a certificate for a buffer full of log entries.
-    friend class RocksteadySegmentCertificate;
+    friend class RocksteadyBufferCertificate;
     DISALLOW_COPY_AND_ASSIGN(Segment);
 };
 
