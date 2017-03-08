@@ -179,6 +179,8 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , busyReplayRpcs()
     , sideLogs()
     , freeSideLogs()
+    , sideLogCommitStarted(false)
+    , commitRpcs()
 {
     objectManager = &((context->getMasterService())->objectManager);
 
@@ -216,6 +218,8 @@ RocksteadyMigration::poll()
         case SETUP : return prepare();
 
         case MIGRATING_DATA : return pullAndReplay();
+
+        case SIDELOG_COMMIT : return sideLogCommit();
 
         case TEAR_DOWN : return tearDown();
 
@@ -436,10 +440,10 @@ RocksteadyMigration::pullAndReplay()
     // STEP-3: All partitions have completed pulling and replaying data.
     if (numCompletedPartitions == MAX_NUM_PARTITIONS) {
         LOG(NOTICE, "Migration has completed on all partitions. Changing"
-                " state to TEAR_DOWN (Tablet[0x%lx, 0x%lx] in table %lu).",
+                " state to SIDELOG_COMMIT (Tablet[0x%lx, 0x%lx] in table %lu).",
                 startKeyHash, endKeyHash, tableId);
 
-        phase = TEAR_DOWN;
+        phase = SIDELOG_COMMIT;
         return workDone;
     } // End of STEP-3.
 
@@ -489,7 +493,7 @@ RocksteadyMigration::pullAndReplay()
             // Issue the rpc.
             (*pullRpc).construct(context, sourceServerId, tableId, startKeyHash,
                     endKeyHash, currentHTBucket, currentHTBucketEntry,
-                    endHTBucket, 10 * 1024 /* Ask the source for 1 MB */,
+                    endHTBucket, 10 * 1024 /* Ask the source for 10 KB */,
                     responseBuffer, partition);
 
             LOG(ll, "Issued pull on partition[%lu, %lu] starting at"
@@ -627,13 +631,46 @@ RocksteadyMigration::pullAndReplay()
 }
 
 int
+RocksteadyMigration::sideLogCommit()
+{
+    int workDone = 0;
+
+    if (sideLogCommitStarted) {
+        // Count the number of completed sidelog commits (if any).
+        uint32_t numCompletedCommits = 0;
+        for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
+            if (commitRpcs[i]->isReady()) {
+                numCompletedCommits++;
+                workDone++;
+            }
+        }
+
+        // Once all sidelogs have been committed, change the phase to
+        // TEAR_DOWN.
+        if (numCompletedCommits == MAX_PARALLEL_REPLAY_RPCS) {
+            phase = TEAR_DOWN;
+        }
+    } else {
+        // If sidelog commit hasn't started yet, issue rpcs to do so to the
+        // worker manager.
+        for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
+            commitRpcs[i].construct(&(sideLogs[i]), localLocator);
+            context->workerManager->handleRpc(commitRpcs[i].get());
+        }
+
+        sideLogCommitStarted = true;
+        workDone++;
+    }
+
+    return workDone;
+}
+
+int
 RocksteadyMigration::tearDown()
 {
     int workDone = 0;
 
     // TODO: Add code to issue a completion rpc to the source here.
-
-    // TODO: Add code to asynchronously commit sidelogs here
 
     phase = COMPLETED;
     workDone++;

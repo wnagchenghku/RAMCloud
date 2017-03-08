@@ -791,6 +791,8 @@ RemoveIndexEntryRpc::handleIndexDoesntExist()
  *      request.
  * \param[out] response
  *      The buffer to append the rpc reply to.
+ * \param[out] certificate
+ *      A certificate for the set of log entries returned by the request.
  *
  * \return
  *      The number of bytes returned by the source of the migration.

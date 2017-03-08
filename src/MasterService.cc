@@ -236,6 +236,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::RocksteadyMigrateTablet, MasterService,
                         &MasterService::rocksteadyMigrateTablet>(rpc);
             break;
+        case WireFormat::RocksteadySideLogCommit::opcode:
+            callHandler<WireFormat::RocksteadySideLogCommit, MasterService,
+                        &MasterService::rocksteadySideLogCommit>(rpc);
+            break;
         case WireFormat::SplitAndMigrateIndexlet::opcode:
             callHandler<WireFormat::SplitAndMigrateIndexlet, MasterService,
                         &MasterService::splitAndMigrateIndexlet>(rpc);
@@ -2301,6 +2305,21 @@ void MasterService::rocksteadyPrepForMigration(
     LOG(NOTICE, "Successfully serviced a prepare-for-migration request on"
             " tablet[0x%lx, 0x%lx] in tablet %lu.", startKeyHash, endKeyHash,
             tableId);
+
+    respHdr->common.status = STATUS_OK;
+    return;
+}
+
+void
+MasterService::rocksteadySideLogCommit(
+        const WireFormat::RocksteadySideLogCommit::Request* reqHdr,
+        WireFormat::RocksteadySideLogCommit::Response* respHdr,
+        Rpc* rpc)
+{
+    Tub<SideLog>* sideLog =
+            reinterpret_cast<Tub<SideLog>*>(reqHdr->sideLogPtr);
+
+    (*sideLog)->commit();
 
     respHdr->common.status = STATUS_OK;
     return;

@@ -52,6 +52,7 @@ class RocksteadyMigration {
   PRIVATE:
     int prepare();
     int pullAndReplay();
+    int sideLogCommit();
     int tearDown();
 
     // Change as necessary.
@@ -75,6 +76,8 @@ class RocksteadyMigration {
         SETUP,
 
         MIGRATING_DATA,
+
+        SIDELOG_COMMIT,
 
         TEAR_DOWN,
 
@@ -192,7 +195,7 @@ class RocksteadyMigration {
 
     std::deque<Tub<RocksteadyPullRpc>*> busyPullRpcs;
 
-    static const uint32_t MAX_PARALLEL_REPLAY_RPCS = 16;
+    static const uint32_t MAX_PARALLEL_REPLAY_RPCS = 8;
 
     class RocksteadyReplayRpc : public Transport::ServerRpc {
       public:
@@ -221,17 +224,20 @@ class RocksteadyMigration {
 
         ~RocksteadyReplayRpc() {}
 
-        void sendReply()
+        void
+        sendReply()
         {
             completed = true;
         }
 
-        string getClientServiceLocator()
+        string
+        getClientServiceLocator()
         {
             return this->localLocator;
         }
 
-        bool isReady()
+        bool
+        isReady()
         {
             return completed;
         }
@@ -260,6 +266,61 @@ class RocksteadyMigration {
     Tub<SideLog> sideLogs[MAX_PARALLEL_REPLAY_RPCS];
 
     std::deque<Tub<SideLog>*> freeSideLogs;
+
+    class RocksteadySideLogCommitRpc : public Transport::ServerRpc {
+      public:
+        explicit RocksteadySideLogCommitRpc(Tub<SideLog>* sideLog,
+                string localLocator)
+            : sideLog(sideLog)
+            , completed(false)
+            , localLocator(localLocator)
+        {
+            WireFormat::RocksteadySideLogCommit::Request* reqHdr =
+                    requestPayload.emplaceAppend<
+                    WireFormat::RocksteadySideLogCommit::Request>();
+
+            reqHdr->common.opcode =
+                    WireFormat::RocksteadySideLogCommit::opcode;
+            reqHdr->common.service =
+                    WireFormat::RocksteadySideLogCommit::service;
+
+            reqHdr->sideLogPtr = reinterpret_cast<uintptr_t>(sideLog);
+        }
+
+        ~RocksteadySideLogCommitRpc() {}
+
+        void
+        sendReply()
+        {
+            completed = true;
+        }
+
+        bool
+        isReady()
+        {
+            return completed;
+        }
+
+        string
+        getClientServiceLocator()
+        {
+            return localLocator;
+        }
+
+      PRIVATE:
+        Tub<SideLog>* sideLog;
+
+        bool completed;
+
+        const string localLocator;
+
+        friend class RocksteadyMigration;
+        DISALLOW_COPY_AND_ASSIGN(RocksteadySideLogCommitRpc);
+    };
+
+    bool sideLogCommitStarted;
+
+    Tub<RocksteadySideLogCommitRpc> commitRpcs[MAX_PARALLEL_REPLAY_RPCS];
 
     friend class RocksteadyMigrationManager;
     DISALLOW_COPY_AND_ASSIGN(RocksteadyMigration);

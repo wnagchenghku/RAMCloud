@@ -278,6 +278,10 @@ class MasterService : public Service {
                 const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
                 WireFormat::RocksteadyPrepForMigration::Response* respHdr,
                 Rpc* rpc);
+    void rocksteadySideLogCommit(
+                const WireFormat::RocksteadySideLogCommit::Request* reqHdr,
+                WireFormat::RocksteadySideLogCommit::Response* respHdr,
+                Rpc* rpc);
     void splitAndMigrateIndexlet(
                 const WireFormat::SplitAndMigrateIndexlet::Request* reqHdr,
                 WireFormat::SplitAndMigrateIndexlet::Response* respHdr,

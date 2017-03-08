@@ -957,6 +957,10 @@ class RemoveRpc : public LinearizableObjectRpcWrapper {
     DISALLOW_COPY_AND_ASSIGN(RemoveRpc);
 };
 
+/**
+ * Encapsulates the state of a RamCloud::rocksteadyMigrateTablet operation,
+ * allowing it to execute asynchronously.
+ */
 class RocksteadyMigrateTabletRpc : public ServerIdRpcWrapper {
   public:
     RocksteadyMigrateTabletRpc(RamCloud* ramcloud, uint64_t tableId,
