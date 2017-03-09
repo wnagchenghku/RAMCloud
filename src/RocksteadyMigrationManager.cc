@@ -13,6 +13,8 @@
 // conserving at the target machine.
 // #define ROCKSTEADY_CHECK_WORK_CONSERVING
 
+// #define ROCKSTEADY_RPC_UTILIZATION
+
 namespace RAMCloud {
 
 /**
@@ -75,6 +77,7 @@ RocksteadyMigrationManager::poll()
         return 0;
     }
 
+    // TODO: Move this to when a migration is started.
     if (!tombstoneProtector) {
         tombstoneProtector.construct(
                 &(context->getMasterService())->objectManager);
@@ -179,8 +182,8 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , busyReplayRpcs()
     , sideLogs()
     , freeSideLogs()
-    , sideLogCommitStarted(false)
-    , commitRpcs()
+    , nextSideLogCommit(0)
+    , sideLogCommitRpc()
 {
     objectManager = &((context->getMasterService())->objectManager);
 
@@ -624,7 +627,22 @@ RocksteadyMigration::pullAndReplay()
                     " being %lu idle worker threads.", numQueuedBuffers,
                     numIdleWorkers);
         }
-    };
+    }
+#endif
+
+#ifdef ROCKSTEADY_RPC_UTILIZATION
+    if (freeReplayRpcs.size() != 0) {
+        LOG(NOTICE, "There are %zd free replay rpcs", freeReplayRpcs.size());
+    }
+
+    if (freePullRpcs.size() != 0) {
+        LOG(NOTICE, "There are %zd free pull rpcs", freePullRpcs.size());
+    }
+
+    if (freeReplayRpcs.size() != freeSideLogs.size()) {
+        LOG(WARNING, "The number of free replay rpcs are not equal to the"
+                " number of free sidelogs. Bug?");
+    }
 #endif
 
     return workDone == 0 ? 0 : 1;
@@ -635,31 +653,44 @@ RocksteadyMigration::sideLogCommit()
 {
     int workDone = 0;
 
-    if (sideLogCommitStarted) {
-        // Count the number of completed sidelog commits (if any).
-        uint32_t numCompletedCommits = 0;
-        for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
-            if (commitRpcs[i]->isReady()) {
-                numCompletedCommits++;
-                workDone++;
-            }
-        }
+    // Rule 1: If a sidelog commit is in progress, check to see if it has
+    // completed.
+    if (sideLogCommitRpc) {
+        if (sideLogCommitRpc->isReady()) {
+            LOG(ll, "Completed commit on sidelog %u (Tablet[0x%lx, 0x%lx]"
+                    " in table %lu", nextSideLogCommit, startKeyHash,
+                    endKeyHash, tableId);
 
-        // Once all sidelogs have been committed, change the phase to
+            sideLogCommitRpc.destroy();
+            nextSideLogCommit++;
+            workDone++;
+        } else {
+            return workDone;
+        }
+    } // End of Rule 1.
+
+    if (!sideLogCommitRpc) {
+        // Rule 2: If there is another sidelog to commit, issue the operation
+        // to do so.
+        if (nextSideLogCommit < MAX_PARALLEL_REPLAY_RPCS) {
+            sideLogCommitRpc.construct(&(sideLogs[nextSideLogCommit]),
+                    localLocator);
+            context->workerManager->handleRpc(sideLogCommitRpc.get());
+
+            LOG(ll, "Issued commit on sidelog %u (Tablet[0x%lx, 0x%lx]"
+                    " in table %lu", nextSideLogCommit, startKeyHash,
+                    endKeyHash, tableId);
+        } // End of Rule 2.
+
+        // Rule 3: If all sidelogs have been committed, change state to
         // TEAR_DOWN.
-        if (numCompletedCommits == MAX_PARALLEL_REPLAY_RPCS) {
-            phase = TEAR_DOWN;
-        }
-    } else {
-        // If sidelog commit hasn't started yet, issue rpcs to do so to the
-        // worker manager.
-        for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
-            commitRpcs[i].construct(&(sideLogs[i]), localLocator);
-            context->workerManager->handleRpc(commitRpcs[i].get());
-        }
+        else {
+            LOG(NOTICE, "All sidelogs have been committed. Changing state"
+                " to TEAR_DOWN (Tablet[0x%lx, 0x%lx] in table %lu).",
+                startKeyHash, endKeyHash, tableId);
 
-        sideLogCommitStarted = true;
-        workDone++;
+            phase = TEAR_DOWN;
+        } // End of Rule 3.
     }
 
     return workDone;
@@ -675,8 +706,8 @@ RocksteadyMigration::tearDown()
     phase = COMPLETED;
     workDone++;
 
-    RAMCLOUD_LOG(NOTICE, "Completed migration of tablet[0x%lx, 0x%lx]"
-            " in table %lu.", startKeyHash, endKeyHash, tableId);
+    LOG(NOTICE, "Completed migration of tablet[0x%lx, 0x%lx] in table %lu.",
+            startKeyHash, endKeyHash, tableId);
 
     return workDone;
 }

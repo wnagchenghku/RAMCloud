@@ -92,7 +92,7 @@ class RocksteadyMigration {
 
     Tub<RocksteadyPrepForMigrationRpc> prepareSourceRpc;
 
-    static const uint32_t PARTITION_PIPELINE_DEPTH = 2;
+    static const uint32_t PARTITION_PIPELINE_DEPTH = 8;
 
     class RocksteadyHashPartition {
       public:
@@ -318,9 +318,9 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadySideLogCommitRpc);
     };
 
-    bool sideLogCommitStarted;
+    uint32_t nextSideLogCommit;
 
-    Tub<RocksteadySideLogCommitRpc> commitRpcs[MAX_PARALLEL_REPLAY_RPCS];
+    Tub<RocksteadySideLogCommitRpc> sideLogCommitRpc;
 
     friend class RocksteadyMigrationManager;
     DISALLOW_COPY_AND_ASSIGN(RocksteadyMigration);
