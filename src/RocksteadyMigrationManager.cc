@@ -67,23 +67,23 @@ RocksteadyMigrationManager::poll()
 {
     int workPerformed = 0;
 
+    // Check to see if a tombstone protector is required.
     if (migrationsInProgress.size() == 0) {
+        // If the migration manager is holding a tombstone protector and there
+        // aren't any in-progress migrations, release the protector.
         if (tombstoneProtector) {
             tombstoneProtector.destroy();
-
-            return 1;
         }
-
-        return 0;
+    } else {
+        // If the migration manager is not holding a tombstone protector and
+        // are in-progress migrations, acquire a protector.
+        if (!tombstoneProtector) {
+            tombstoneProtector.construct(
+                    &(context->getMasterService())->objectManager);
+        }
     }
 
-    // TODO: Move this to when a migration is started.
-    if (!tombstoneProtector) {
-        tombstoneProtector.construct(
-                &(context->getMasterService())->objectManager);
-        workPerformed++;
-    }
-
+    // Poll on any in-progress migrations.
     for (auto migration = migrationsInProgress.begin();
         migration != migrationsInProgress.end(); ) {
         RocksteadyMigration* currentMigration = *migration;
@@ -147,7 +147,9 @@ RocksteadyMigrationManager::startMigration(ServerId sourceServerId,
         }
     }
 
-    // Add the new migration to the manager.
+    // Add the new migration to the manager. The check for a tombstone
+    // protector will be made before the poll() method on this migration
+    // is invoked.
     RocksteadyMigration* newMigration = new RocksteadyMigration(context,
                                         this->localLocator, sourceServerId,
                                         tableId, startKeyHash, endKeyHash);
@@ -235,9 +237,8 @@ RocksteadyMigration::poll()
 int
 RocksteadyMigration::prepare()
 {
-    // TODO: Once the take-ownership rpc has been implemented, add code here
-    // to check if it has completed. Once completed, construct the set of
-    // partitions.
+    // TODO: Once the take-ownership rpc has been implemented, add code to
+    // invoke it before sending out a prepare rpc to the source.
 
     if (prepareSourceRpc) {
         // If the prepare rpc was sent out, check for it's completion.
@@ -252,11 +253,6 @@ RocksteadyMigration::prepare()
                     " table %lu from master %lu.", *sourceSafeVersion,
                     startKeyHash, endKeyHash, tableId, sourceServerId.getId());
 
-            // TODO: Once the take-ownership rpc has been implemented, add
-            // code here to invoke it.
-
-            // TODO: This code should be moved to after the destination has
-            // taken over ownership of the tablet under migration.
             for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
                 uint64_t partitionStartHTBucket =
                         i * (sourceNumHTBuckets / MAX_NUM_PARTITIONS);
@@ -275,8 +271,6 @@ RocksteadyMigration::prepare()
             }
 
             // The destination can now start migrating data.
-            // TODO: This code should be moved to after the destination has
-            // taken over ownership of the tablet under migration.
             phase = MIGRATING_DATA;
 
             return 1;
@@ -298,6 +292,7 @@ RocksteadyMigration::prepare()
     }
 }
 
+// TODO: Break this up into multiple inlined functions.
 int
 RocksteadyMigration::pullAndReplay()
 {
@@ -413,7 +408,7 @@ RocksteadyMigration::pullAndReplay()
             if (((*partition)->allDataPulled == true) &&
                     ((*partition)->freeReplayBuffers.size() == 0) &&
                     ((*partition)->numReplaysInProgress == 0)) {
-                LOG(NOTICE, "Finished replaying all data in partition[%lu,"
+                LOG(ll, "Finished replaying all data in partition[%lu,"
                         " %lu]. Pulled %lu Bytes and replayed %lu Bytes"
                         " (Migrating tablet[0x%lx, 0x%lx] in table %lu).",
                         (*partition)->startHTBucket, (*partition)->endHTBucket,
@@ -701,7 +696,11 @@ RocksteadyMigration::tearDown()
 {
     int workDone = 0;
 
+    // TODO: The completion and drop-dependency rpc can be issued together.
+
     // TODO: Add code to issue a completion rpc to the source here.
+
+    // TODO: Add code to issue a drop-dependency rpc to the coordinator here.
 
     phase = COMPLETED;
     workDone++;
