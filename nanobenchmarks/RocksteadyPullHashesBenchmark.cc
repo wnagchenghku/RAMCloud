@@ -170,6 +170,7 @@ class RocksteadyPullHashesBenchmark {
 int
 main(void)
 {
+    uint32_t numRuns = 5;
     size_t numThreads[] = { 1, 2, 4, 8 };
     // Approximately 3.48 GB of data including log entry headers.
     uint32_t numObjects[] = { 30400000, 20000000, 11900000, 6550000, 3450000 };
@@ -177,21 +178,27 @@ main(void)
     std::vector<double> pullThroughput;
 
     // First run all tests and save the throughput obtained in each run.
-    for (auto nThreads : numThreads) {
-        for (uint32_t i = 0; i < sizeof(numObjects) / sizeof(uint32_t); i++) {
-            RAMCloud::RocksteadyPullHashesBenchmark rphb("5120", "10%");
-            pullThroughput.push_back(
-                    rphb.run(nThreads, numObjects[i], objectSize[i]));
+    for (uint32_t run = 0; run < numRuns; run++) {
+        for (auto nThreads : numThreads) {
+            for (uint32_t i = 0; i < sizeof(numObjects) / sizeof(uint32_t);
+                    i++) {
+                RAMCloud::RocksteadyPullHashesBenchmark rphb("5120", "10%");
+                pullThroughput.push_back(
+                        rphb.run(nThreads, numObjects[i], objectSize[i]));
+            }
         }
     }
 
     // Generate output (for gnuplot/R).
     uint32_t j = 0;
     fprintf(stdout, "numThreads objectSize throughput\n");
-    for (auto nThreads : numThreads) {
-        for (uint32_t i = 0; i < sizeof(numObjects) / sizeof(uint32_t); i++) {
-            fprintf(stdout, "%zd %u %.2f\n", nThreads, objectSize[i],
-                    pullThroughput[j++]);
+    for (uint32_t run = 0; run < numRuns; run++) {
+        for (auto nThreads : numThreads) {
+            for (uint32_t i = 0; i < sizeof(numObjects) / sizeof(uint32_t);
+                    i++) {
+                fprintf(stdout, "%zd %u %.2f\n", nThreads, objectSize[i],
+                        pullThroughput[j++]);
+            }
         }
     }
 
