@@ -87,7 +87,7 @@ class RocksteadyPullHashesBenchmark {
 
             Key key(99, primaryKey, 30);
 
-            char value[1024];
+            char value[10240];
             snprintf(value, objectSize, "v%0*d", objectSize - 2, i);
 
             Buffer buffer;
@@ -170,11 +170,12 @@ class RocksteadyPullHashesBenchmark {
 int
 main(void)
 {
-    uint32_t numRuns = 5;
+    uint32_t numRuns = 10;
     size_t numThreads[] = { 1, 2, 4, 8 };
     // Approximately 3.48 GB of data including log entry headers.
-    uint32_t numObjects[] = { 30400000, 20000000, 11900000, 6550000, 3450000 };
-    uint32_t objectSize[] = { 64, 128, 256, 512, 1024 };
+    uint32_t numObjects[] = { 30400000, 20000000, 11900000, 6550000, 3450000,
+            1775000, 453000 };
+    uint32_t objectSize[] = { 64, 128, 256, 512, 1024, 2048, 8192 };
     std::vector<double> pullThroughput;
 
     // First run all tests and save the throughput obtained in each run.

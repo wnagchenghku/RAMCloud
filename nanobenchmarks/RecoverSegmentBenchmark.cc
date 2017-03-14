@@ -112,7 +112,7 @@ class RecoverSegmentBenchmark {
         sideLog.commit();
     }
 
-    void
+    double
     run(uint32_t dataLen, size_t nThreads)
     {
         /*
@@ -124,7 +124,10 @@ class RecoverSegmentBenchmark {
         for (size_t i = 0; i < numSegments; i++) {
             segments.push_back(new Segment());
             while (1) {
-                Key key(0, &nextKeyVal, sizeof(nextKeyVal));
+                char primaryKey[30];
+                snprintf(primaryKey, 30, "p%0*lu", 28, nextKeyVal);
+
+                Key key(0, primaryKey, 30);
 
                 char objectData[dataLen];
 
@@ -193,31 +196,31 @@ class RecoverSegmentBenchmark {
         uint64_t totalSegmentBytes = uint64_t(numSegments) *
                                      Segment::DEFAULT_SEGMENT_SIZE;
 
-        printf("%lu threads\n", nThreads);
-        printf("Recovery of %lu %uKB Segments with %u byte Objects took %lu "
-            "ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
+        fprintf(stderr, "%lu threads\n", nThreads);
+        fprintf(stderr, "Recovery of %lu %uKB Segments with %u byte Objects"
+            " took %lu ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
             dataLen, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
-        printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
-            "overhead)\n", numObjects, totalObjectBytes,
+        fprintf(stderr, "Actual total object count: %lu (%lu bytes in Objects,"
+            " %.2f%% overhead)\n", numObjects, totalObjectBytes,
             100.0 *
             static_cast<double>(totalSegmentBytes - totalObjectBytes) /
             static_cast<double>(totalSegmentBytes));
 
         double seconds = Cycles::toSeconds(ticks);
-        printf("Recovery object throughput: %.2f MB/s\n",
+        fprintf(stderr, "Recovery object throughput: %.2f MB/s\n",
                static_cast<double>(totalObjectBytes) / seconds / 1024. / 1024.);
-        printf("Recovery log throughput: %.2f MB/s\n",
+        fprintf(stderr, "Recovery log throughput: %.2f MB/s\n",
               static_cast<double>(totalSegmentBytes) / seconds / 1024. / 1024.);
 
-        printf("\n");
-        printf("Verify object checksums: %.2f ms\n",
+        fprintf(stderr, "\n");
+        fprintf(stderr, "Verify object checksums: %.2f ms\n",
                Cycles::toSeconds(metrics->master.verifyChecksumTicks.load()) *
                1000.);
         metrics->master.verifyChecksumTicks = 0;
 
 #define DUMP_TEMP_TICKS(i)  \
 if (metrics->temp.ticks##i.load()) { \
-    printf("temp.ticks%d: %.2f ms\n", i, \
+    fprintf(stderr, "temp.ticks%d: %.2f ms\n", i, \
            Cycles::toSeconds(metrics->temp.ticks##i.load()) * \
            1000.); \
     metrics->temp.ticks##i = 0; \
@@ -225,7 +228,7 @@ if (metrics->temp.ticks##i.load()) { \
 
 #define DUMP_TEMP_COUNT(i)  \
 if (metrics->temp.count##i.load()) { \
-    printf("temp.count%d: %lu\n", i, \
+    fprintf(stderr, "temp.count%d: %lu\n", i, \
            metrics->temp.count##i.load()); \
     metrics->temp.count##i = 0; \
 }
@@ -251,6 +254,9 @@ if (metrics->temp.count##i.load()) { \
         DUMP_TEMP_COUNT(7);
         DUMP_TEMP_COUNT(8);
         DUMP_TEMP_COUNT(9);
+
+        return (static_cast<double>(totalSegmentBytes) /
+                seconds / 1024. / 1024. / 1024.);
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
@@ -261,15 +267,31 @@ if (metrics->temp.count##i.load()) { \
 int
 main()
 {
-    size_t numSegments = 5 * 600 / 8;
+    uint32_t numRuns = 10;
+    size_t numSegments = 6 * 600 / 8;
     uint32_t dataLen[] = { 64, 128, 256, 512, 1024, 2048, 8192 };
     size_t nThreads[] = { 1, 2, 4, 8 };
+    std::vector<double> replayThroughput;
 
-    for (size_t threads : nThreads) {
-        for (uint32_t len : dataLen) {
-            printf("==========================\n");
-            RAMCloud::RecoverSegmentBenchmark rsb("4096", "10%", numSegments);
-            rsb.run(len, threads);
+    for (uint32_t run = 0; run < numRuns; run++) {
+        for (size_t threads : nThreads) {
+            for (uint32_t len : dataLen) {
+                fprintf(stderr, "==========================\n");
+                RAMCloud::RecoverSegmentBenchmark rsb("5120", "10%",
+                        numSegments);
+                replayThroughput.push_back(rsb.run(len, threads));
+            }
+        }
+    }
+
+    uint32_t j = 0;
+    fprintf(stdout, "numThreads objectSize throughput\n");
+    for (uint32_t run = 0; run < numRuns; run++) {
+        for (size_t threads : nThreads) {
+            for (uint32_t len : dataLen) {
+                fprintf(stdout, "%zd %u %.2f\n", threads, len,
+                        replayThroughput[j++]);
+            }
         }
     }
 

@@ -5945,7 +5945,7 @@ rocksteadySimpleMigration()
     cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
             &afterStatsBuffer);
 
-    Cycles::sleep(1000000 * 10);
+    Cycles::sleep(1000000 * 30);
 
     PerfStats::Diff diff;
     PerfStats::clusterDiff(&beforeStatsBuffer, &afterStatsBuffer, &diff);
