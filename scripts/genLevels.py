@@ -63,6 +63,8 @@ callees = {
     "READ":                  ["BACKUP_WRITE"],
     "READ_HASHES":           ["BACKUP_WRITE"],
     "READ_KEYS_AND_VALUE":   ["BACKUP_WRITE"],
+    "REASSIGN_TABLET_OWNERSHIP":
+                             ["TAKE_TABLET_OWNERSHIP"],
     "RECEIVE_MIGRATION_DATA":["BACKUP_WRITE"],
     "RECOVER":               ["BACKUP_GETRECOVERYDATA", "BACKUP_WRITE"],
     "REMOVE":                ["BACKUP_WRITE", "REMOVE_INDEX_ENTRY"],
@@ -181,6 +183,9 @@ if not finished:
             sys.stderr.write("Couldn't assign level for %s: circularity "
                     "in call graph?\n" % (op))
     sys.exit(1)
+
+# Assign a level to Rocksteady RPCs.
+levels["ROCKSTEADY_MIGRATION_PULL_HASHES"] = 1
 
 # Finally, generate output, consisting of the guts of a C++ array
 # (everything between the '[' and the ']').

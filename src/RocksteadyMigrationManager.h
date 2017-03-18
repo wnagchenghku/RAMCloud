@@ -9,6 +9,8 @@
 #include "Transport.h"
 #include "MasterClient.h"
 #include "ObjectManager.h"
+#include "TabletManager.h"
+#include "CoordinatorClient.h"
 
 namespace RAMCloud {
 
@@ -60,6 +62,8 @@ class RocksteadyMigration {
 
     Context* context;
 
+    TabletManager* tabletManager;
+
     ObjectManager* objectManager;
 
     const string localLocator;
@@ -91,6 +95,8 @@ class RocksteadyMigration {
     Tub<uint64_t> sourceSafeVersion;
 
     Tub<RocksteadyPrepForMigrationRpc> prepareSourceRpc;
+
+    Tub<RocksteadyTakeTabletOwnershipRpc> takeOwnershipRpc;
 
     static const uint32_t PARTITION_PIPELINE_DEPTH = 8;
 

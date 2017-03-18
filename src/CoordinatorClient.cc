@@ -704,6 +704,36 @@ RenewLeaseRpc::wait()
 
     return respHdr->lease;
 }
+
+void
+CoordinatorClient::rocksteadyTakeTabletOwnership(Context* context,
+        uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
+        ServerId newOwnerId, uint64_t ctimeSegmentId,
+        uint64_t ctimeSegmentOffset)
+{
+    RocksteadyTakeTabletOwnershipRpc rpc(context, tableId, startKeyHash,
+            endKeyHash, newOwnerId, ctimeSegmentId, ctimeSegmentOffset);
+    rpc.wait();
+}
+
+RocksteadyTakeTabletOwnershipRpc::RocksteadyTakeTabletOwnershipRpc(
+        Context* context, uint64_t tableId, uint64_t startKeyHash,
+        uint64_t endKeyHash, ServerId newOwnerId, uint64_t ctimeSegmentId,
+        uint64_t ctimeSegmentOffset)
+    : CoordinatorRpcWrapper(context,
+            sizeof(WireFormat::RocksteadyTakeTabletOwnership::Response))
+{
+    WireFormat::RocksteadyTakeTabletOwnership::Request* reqHdr(
+            allocHeader<WireFormat::RocksteadyTakeTabletOwnership>());
+    reqHdr->tableId = tableId;
+    reqHdr->startKeyHash = startKeyHash;
+    reqHdr->endKeyHash = endKeyHash;
+    reqHdr->newOwnerId = newOwnerId.getId();
+    reqHdr->ctimeSegmentId = ctimeSegmentId;
+    reqHdr->ctimeSegmentOffset = ctimeSegmentOffset;
+    send();
+}
+
 /**
  * This RPC is used to invoke ServerControl on every server in the cluster; it
  * returns all of the responses.

@@ -64,6 +64,10 @@ class CoordinatorClient {
             bool successful);
     static WireFormat::ClientLease renewLease(Context* context,
             uint64_t leaseId);
+    static void rocksteadyTakeTabletOwnership(Context* context,
+            uint64_t tableId, uint64_t startKeyHash, uint64_t endKeyHash,
+            ServerId newOwnerId, uint64_t ctimeSegmentId,
+            uint64_t ctimeSegmentOffset);
     static void sendServerList(Context* context, ServerId destination);
     static void serverControlAll(Context* context,
             WireFormat::ControlOp controlOp, const void* inputData = NULL,
@@ -224,6 +228,18 @@ class RenewLeaseRpc : public CoordinatorRpcWrapper {
 
     PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RenewLeaseRpc);
+};
+
+class RocksteadyTakeTabletOwnershipRpc : public CoordinatorRpcWrapper {
+    public:
+    RocksteadyTakeTabletOwnershipRpc(Context* context, uint64_t tableId,
+            uint64_t startKeyHash, uint64_t endKeyHash, ServerId newOwnerId,
+            uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
+    ~RocksteadyTakeTabletOwnershipRpc() {}
+    void wait() {simpleWait(context);}
+
+    PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RocksteadyTakeTabletOwnershipRpc);
 };
 
 /**

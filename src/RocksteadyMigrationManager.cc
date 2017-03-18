@@ -1,5 +1,6 @@
 #include <new>
 
+#include "LogMetadata.h"
 #include "OptionParser.h"
 #include "WorkerManager.h"
 #include "MasterService.h"
@@ -164,6 +165,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
                         uint64_t tableId, uint64_t startKeyHash,
                         uint64_t endKeyHash)
     : context(context)
+    , tabletManager()
     , objectManager()
     , localLocator(localLocator)
     , sourceServerId(sourceServerId)
@@ -174,6 +176,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , sourceNumHTBuckets()
     , sourceSafeVersion()
     , prepareSourceRpc()
+    , takeOwnershipRpc()
     , partitions()
     , numCompletedPartitions(0)
     , pullRpcs()
@@ -187,6 +190,8 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , nextSideLogCommit(0)
     , sideLogCommitRpc()
 {
+    // Get a pointer to this master's tablet and object manager.
+    tabletManager = &((context->getMasterService())->tabletManager);
     objectManager = &((context->getMasterService())->objectManager);
 
     // To begin with, all pull rpcs are free.
@@ -212,6 +217,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
 
 RocksteadyMigration::~RocksteadyMigration()
 {
+    takeOwnershipRpc.destroy();
     sourceSafeVersion.destroy();
     prepareSourceRpc.destroy();
 }
@@ -237,22 +243,13 @@ RocksteadyMigration::poll()
 int
 RocksteadyMigration::prepare()
 {
-    // TODO: Once the take-ownership rpc has been implemented, add code to
-    // invoke it before sending out a prepare rpc to the source.
+    if (takeOwnershipRpc) {
+        // If the take ownership rpc was sent out, check for it's completion.
+        if (takeOwnershipRpc->isReady()) {
+            takeOwnershipRpc->wait();
 
-    if (prepareSourceRpc) {
-        // If the prepare rpc was sent out, check for it's completion.
-        if (prepareSourceRpc->isReady()) {
-            // If the prepare rpc has completed, update the local safeVersion.
-            sourceSafeVersion.construct(
-                    prepareSourceRpc->wait(&sourceNumHTBuckets));
-            objectManager->raiseSafeVersion(*sourceSafeVersion);
-
-            RAMCLOUD_LOG(ll, "Successfully raised safeVersion above %lu"
-                    " in preparation for migrating tablet[0x%lx, 0x%lx] in"
-                    " table %lu from master %lu.", *sourceSafeVersion,
-                    startKeyHash, endKeyHash, tableId, sourceServerId.getId());
-
+            // Create logical partitions on the source's hash table once the
+            // take ownership rpc has returned.
             for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
                 uint64_t partitionStartHTBucket =
                         i * (sourceNumHTBuckets / MAX_NUM_PARTITIONS);
@@ -272,6 +269,40 @@ RocksteadyMigration::prepare()
 
             // The destination can now start migrating data.
             phase = MIGRATING_DATA;
+
+            return 1;
+        } else {
+            return 0;
+        }
+    } else if (prepareSourceRpc) {
+        // If the prepare rpc was sent out, check for it's completion.
+        if (prepareSourceRpc->isReady()) {
+            // If the prepare rpc has completed, update the local safeVersion.
+            sourceSafeVersion.construct(
+                    prepareSourceRpc->wait(&sourceNumHTBuckets));
+            objectManager->raiseSafeVersion(*sourceSafeVersion);
+
+            RAMCLOUD_LOG(ll, "Successfully raised safeVersion above %lu"
+                    " in preparation for migrating tablet[0x%lx, 0x%lx] in"
+                    " table %lu from master %lu.", *sourceSafeVersion,
+                    startKeyHash, endKeyHash, tableId, sourceServerId.getId());
+
+            // Add the tablet to the target. The tablet starts off in state
+            // ROCKSTEADY_MIGRATION.
+            tabletManager->addTablet(tableId, startKeyHash, endKeyHash,
+                    TabletManager::ROCKSTEADY_MIGRATING);
+
+            RAMCLOUD_LOG(ll, "Added tablet[0x%lx, 0x%lx] in table %lu with"
+                    " state ROCKSTEADY_MIGRATING.", startKeyHash, endKeyHash,
+                    tableId);
+
+            // Initiate ownership transfer for the tablet under migration.
+            // LogPosition head = objectManager->getLog()->getHead();
+            uint64_t ctimeSegmentId = 0; // head.getSegmentId();
+            uint64_t ctimeSegmentOffset = 0; // head.getSegmentOffset();
+            takeOwnershipRpc.construct(context, tableId, startKeyHash,
+                    endKeyHash, (context->getMasterService())->serverId,
+                    ctimeSegmentId, ctimeSegmentOffset);
 
             return 1;
         } else {
@@ -701,6 +732,11 @@ RocksteadyMigration::tearDown()
     // TODO: Add code to issue a completion rpc to the source here.
 
     // TODO: Add code to issue a drop-dependency rpc to the coordinator here.
+
+    // TODO: Make sure this change in state takes place only once, and only
+    // after the completion and drop-dependency rpcs have returned.
+    tabletManager->changeState(tableId, startKeyHash, endKeyHash,
+            TabletManager::ROCKSTEADY_MIGRATING, TabletManager::NORMAL);
 
     phase = COMPLETED;
     workDone++;

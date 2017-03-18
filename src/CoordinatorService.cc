@@ -216,6 +216,11 @@ CoordinatorService::dispatch(WireFormat::Opcode opcode,
             callHandler<WireFormat::RenewLease, CoordinatorService,
                         &CoordinatorService::renewLease>(rpc);
             break;
+        case WireFormat::RocksteadyTakeTabletOwnership::opcode:
+            callHandler<WireFormat::RocksteadyTakeTabletOwnership,
+                       CoordinatorService,
+                       &CoordinatorService::rocksteadyTakeTabletOwnership>(rpc);
+            break;
         case WireFormat::ServerControlAll::opcode:
             callHandler<WireFormat::ServerControlAll, CoordinatorService,
                         &CoordinatorService::serverControlAll>(rpc);
@@ -613,6 +618,39 @@ CoordinatorService::renewLease(
     Rpc* rpc)
 {
     respHdr->lease = leaseAuthority.renewLease(reqHdr->leaseId);
+}
+
+void
+CoordinatorService::rocksteadyTakeTabletOwnership(
+    const WireFormat::RocksteadyTakeTabletOwnership::Request* reqHdr,
+    WireFormat::RocksteadyTakeTabletOwnership::Response* respHdr,
+    Rpc* rpc)
+{
+    uint64_t tableId = reqHdr->tableId;
+    uint64_t startKeyHash = reqHdr->startKeyHash;
+    uint64_t endKeyHash = reqHdr->endKeyHash;
+    ServerId newOwnerId(reqHdr->newOwnerId);
+    uint64_t ctimeSegmentId = reqHdr->ctimeSegmentId;
+    uint64_t ctimeSegmentOffset = reqHdr->ctimeSegmentOffset;
+
+    bool skipNewOwnerNotification = true;
+
+    try {
+        tableManager.reassignTabletOwnership(
+                newOwnerId, tableId, startKeyHash, endKeyHash,
+                ctimeSegmentId, ctimeSegmentOffset,
+                skipNewOwnerNotification);
+        respHdr->common.status = STATUS_OK;
+    } catch (TableManager::NoSuchTable& e) {
+        LOG(NOTICE, "Received a RocksteadyTakeTabletOwnership request for a "
+                "non-existent table(table id %lu).", tableId);
+        respHdr->common.status = STATUS_TABLE_DOESNT_EXIST;
+    } catch (TableManager::NoSuchTablet& e) {
+        LOG(NOTICE, "Received a RocksteadyTakeTabletOwnership request for a "
+                "non-existent tablet[0x%lx, 0x%lx] in table %lu.",
+                startKeyHash, endKeyHash, tableId);
+        respHdr->common.status = STATUS_TABLET_DOESNT_EXIST;
+    }
 }
 
 /**

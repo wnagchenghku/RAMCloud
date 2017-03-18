@@ -629,6 +629,10 @@ TableManager::markAllTabletsRecovering(ServerId serverId)
  *      ServerId of the log head before migration.
  * \param ctimeSegmentOffset
  *      Offset in log head before migration.
+ * \param skipNewOwnerNotification
+ *      If true, do not notify the new owner of the ownership transfer. This
+ *      is required by the rocksteady migration protocol where the target
+ *      master initiates ownership transfer.
  *
  * \throw NoSuchTable
  *      If tableId does not specify an existing table.
@@ -639,7 +643,8 @@ void
 TableManager::reassignTabletOwnership(
         ServerId newOwner, uint64_t tableId,
         uint64_t startKeyHash, uint64_t endKeyHash,
-        uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset)
+        uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset,
+        bool skipNewOwnerNotification)
 {
     Lock lock(mutex);
     IdMap::iterator it = idMap.find(tableId);
@@ -682,7 +687,9 @@ TableManager::reassignTabletOwnership(
     syncTable(lock, table, &externalInfo);
 
     // Finish up by notifying the relevant master.
-    notifyReassignTablet(lock, &externalInfo);
+    if (!skipNewOwnerNotification) {
+        notifyReassignTablet(lock, &externalInfo);
+    }
     updateManager->updateFinished(externalInfo.sequence_number());
 }
 

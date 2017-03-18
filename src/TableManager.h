@@ -87,7 +87,8 @@ class TableManager {
     vector<Tablet> markAllTabletsRecovering(ServerId serverId);
     void reassignTabletOwnership(ServerId newOwner, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
-            uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset);
+            uint64_t ctimeSegmentId, uint64_t ctimeSegmentOffset,
+            bool skipNewOwnerNotification = false);
     void recover(uint64_t lastCompletedUpdate);
     void serializeTableConfig(ProtoBuf::TableConfig* tableConfig,
             uint64_t tableId);

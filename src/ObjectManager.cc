@@ -325,17 +325,39 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     objectMap.prefetchBucket(key.getHash());
     HashTableBucketLock lock(*this, key);
 
+    // Indicator for whether this read is on a tablet under migration by the
+    // rocksteady protocol.
+    bool isRocksteady = false;
+
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
-    if (!tabletManager->checkAndIncrementReadCount(key))
-        return STATUS_UNKNOWN_TABLET;
+    if (!tabletManager->checkAndIncrementReadCount(key)) {
+        TabletManager::Tablet t;
+        bool tabletExists = tabletManager->getTablet(key, &t);
+
+        // If the tablet is being migrated using rocksteady, do not return an
+        // error to the client.
+        if (!tabletExists || t.state != TabletManager::ROCKSTEADY_MIGRATING) {
+            return STATUS_UNKNOWN_TABLET;
+        } else {
+            isRocksteady = true;
+        }
+    }
 
     Buffer buffer;
     LogEntryType type;
     uint64_t version;
     Log::Reference reference;
     bool found = lookup(lock, key, type, buffer, &version, &reference);
-    if (!found || type != LOG_ENTRY_TYPE_OBJ)
-        return STATUS_OBJECT_DOESNT_EXIST;
+    if (!found || type != LOG_ENTRY_TYPE_OBJ) {
+        // If the object belongs to a tablet under migration using rocksteady,
+        // ask the client to retry.
+        if (!found && isRocksteady) {
+            throw RetryException(HERE, 1000, 2000,
+                    "Tablet is currently locked for migration!");
+        } else {
+            return STATUS_OBJECT_DOESNT_EXIST;
+        }
+    }
 
     if (outVersion != NULL)
         *outVersion = version;
@@ -348,6 +370,12 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
 
     // Ensure the object being read is replicated durably.
     log.syncTo(reference);
+
+    // Increment the read count if the tablet is under migration using
+    // rocksteady.
+    if (isRocksteady) {
+        tabletManager->incrementReadCount(key);
+    }
 
     Object object(buffer);
     if (valueOnly) {
@@ -1195,7 +1223,11 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
             throw RetryException(HERE, 1000, 2000,
                     "Tablet is currently locked for migration!");
-        return STATUS_UNKNOWN_TABLET;
+
+        // If the tablet is being migrated by rocksteady, then allow writes to
+        // proceed.
+        if (tablet.state != TabletManager::ROCKSTEADY_MIGRATING)
+            return STATUS_UNKNOWN_TABLET;
     }
 
     // If key is locked due to an in-progress transaction, we must wait.

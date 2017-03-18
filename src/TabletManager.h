@@ -59,6 +59,9 @@ class TabletManager {
         NOT_READY = 1,
         /// Migration of tablet is requested. Cannot take new writes.
         LOCKED_FOR_MIGRATION = 2,
+        /// The tablet is being migrated over by rocksteady. It can take new
+        /// writes and reads.
+        ROCKSTEADY_MIGRATING = 3,
     };
 
     /**

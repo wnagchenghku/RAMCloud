@@ -109,6 +109,10 @@ class CoordinatorService : public Service {
     void renewLease(const WireFormat::RenewLease::Request* reqHdr,
                     WireFormat::RenewLease::Response* respHdr,
                     Rpc* rpc);
+    void rocksteadyTakeTabletOwnership(
+            const WireFormat::RocksteadyTakeTabletOwnership::Request* reqHdr,
+            WireFormat::RocksteadyTakeTabletOwnership::Response* respHdr,
+            Rpc* rpc);
     void serverControlAll(const WireFormat::ServerControlAll::Request* reqHdr,
             WireFormat::ServerControlAll::Response* respHdr,
             Rpc* rpc);
