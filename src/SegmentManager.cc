@@ -104,9 +104,14 @@ SegmentManager::SegmentManager(Context* context,
     for (uint32_t i = emergencyHeadSlotsReserved; i < maxSegments; i++)
         freeSlots.push_back(i);
 
-    context->transportManager->registerMemory(
-        const_cast<void*>(allocator.getBaseAddress()),
-        allocator.getTotalBytes());
+    if (config->registerMemory) {
+        context->transportManager->registerMemory(
+            const_cast<void*>(allocator.getBaseAddress()),
+            allocator.getTotalBytes());
+    } else {
+        LOG(WARNING, "registerMemory is false; log memory not registered "
+                "zero-copy transmit is effectively disabled.");
+    }
 }
 
 /**

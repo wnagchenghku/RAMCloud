@@ -237,7 +237,12 @@ main(int argc, char *argv[])
              "this value. Lower values cause the disk cleaner to run more "
              "frequently. Higher values do more in-memory cleaning and "
              "reduce the amount of backup disk bandwidth used during disk "
-             "cleaning.");
+             "cleaning.")
+            ("registerMemory",
+             ProgramOptions::value<bool>(&config.registerMemory)->
+                default_value(true),
+             "Whether to register log memory with the transport; false "
+             "effectively disables zero-copy object transmit");
 
         OptionParser optionParser(serverOptions, argc, argv);
 

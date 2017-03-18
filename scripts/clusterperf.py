@@ -304,6 +304,8 @@ def run_test(
         client_args['--spannedOps'] = options.spannedOps
     if options.fullSamples:
         client_args['--fullSamples'] = ''
+    if options.bigReads:
+        client_args['--bigReads'] = ''
     if options.seconds:
         client_args['--seconds'] = options.seconds
     test.function(test.name, options, cluster_args, client_args)
@@ -955,6 +957,10 @@ if __name__ == '__main__':
             action='store_true', default=False, dest='fullSamples',
             help='Run with alternate sample format that includes sample '
                  'timestamps along with their durations.')
+    parser.add_option('--bigReads',
+            action='store_true', default=False, dest='bigReads',
+            help='Have one of the clients issue reads of huge values instead '
+                 'of running the normal doWorkload mix.')
     parser.add_option('--superuser', action='store_true', default=False,
             help='Start the cluster and clients as superuser')
     (options, args) = parser.parse_args()

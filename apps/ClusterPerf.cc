@@ -147,6 +147,10 @@ int seconds = 10;
 // for each sample along with its duration.
 bool fullSamples = false;
 
+// Have one of the clients issue reads of huge values instead
+// of running the normal doWorkload mix.
+bool bigReads = false;
+
 #define MAX_METRICS 8
 
 // The following type holds metrics for all the clients.  Each inner vector
@@ -4755,9 +4759,12 @@ enum OpType{ READ_TYPE, WRITE_TYPE };
 void
 doWorkload(OpType type)
 {
+    cluster->createTable("huge");
+    uint64_t hugeTable = cluster->getTableId("huge");
     WorkloadGenerator loadGenerator(workload);
 
     if (clientIndex > 0) {
+        Buffer readBuf{};
         // Perform slave setup.
         while (true) {
             char command[20];
@@ -4768,7 +4775,15 @@ doWorkload(OpType type)
                 setSlaveState("running");
                 try
                 {
-                    loadGenerator.run(static_cast<uint64_t>(targetOps));
+                    if (bigReads && clientIndex < 2) {
+                        char key = '0';
+                        while (true) {
+                            readBuf.reset();
+                            cluster->read(hugeTable, &key, 1, &readBuf);
+                        }
+                    } else {
+                        loadGenerator.run(static_cast<uint64_t>(targetOps));
+                    }
                 }
                 catch (TableDoesntExistException &e)
                 {}
@@ -4781,6 +4796,12 @@ doWorkload(OpType type)
         }
     }
 
+    {
+        char key = '0';
+        uint32_t big= 1* 1024 * 1024;
+        auto value = std::unique_ptr<char[]>{new char[big]};
+        cluster->write(hugeTable, &key, 1, value.get(), big);
+    }
     loadGenerator.setup();
 
     sendCommand("run", "running", 1, numClients-1);
@@ -4955,6 +4976,7 @@ doWorkload(OpType type)
             targetMissCount, opCount, readCount, writeCount);
 
     // Stop slaves.
+    cluster->dropTable("huge");
     cluster->dropTable("data");
     sendCommand("done", NULL, 1, numClients-1);
 
@@ -6953,7 +6975,10 @@ try
                 "only applies to doWorkload based experiments.")
         ("fullSamples", po::bool_switch(&fullSamples),
                 "Print alternate format for latency samples that includes "
-                "timestamps for each of the samples.");
+                "timestamps for each of the samples.")
+        ("bigReads", po::bool_switch(&bigReads),
+                "Have one of the clients issue reads of huge values instead "
+                "of running the normal doWorkload mix.");
 
     po::positional_options_description pos_desc;
     pos_desc.add("testName", -1);

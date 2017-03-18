@@ -37,20 +37,23 @@ message ServerConfig {
     /// All memory in the process is pinned.
     required bool pin_memory = 6;
 
+    /// Log memory in the process is registered with the transport.
+    required bool register_memory = 7;
+
     /// Size of each segment in bytes.
-    required fixed32 segment_size = 7;
+    required fixed32 segment_size = 8;
 
     /// Size of each seglet in bytes.
-    required fixed32 seglet_size = 8;
+    required fixed32 seglet_size = 9;
 
     /// Largest allowable RAMCloud object, in bytes.
-    required fixed32 max_object_data_size = 9;
+    required fixed32 max_object_data_size = 10;
 
     /// Largest allowable key for a RAMCloud object, in bytes.
-    required fixed32 max_object_key_size = 10;
+    required fixed32 max_object_key_size = 11;
 
     /// Max number of cores to use at once for dispatch and worker threads.
-    required fixed32 max_cores = 11;
+    required fixed32 max_cores = 12;
 
     /// Configuration details specific to the MasterService on a server.
     message Master {
@@ -91,7 +94,7 @@ message ServerConfig {
     }
 
     /// The server's MasterService configuration, if it is running one.
-    optional Master master = 12;
+    optional Master master = 13;
 
     message Backup {
         /// Whether the backup garbage collector is enabled or not.
@@ -122,5 +125,5 @@ message ServerConfig {
     }
 
     /// The server's BackupService configuration, if it is running one.
-    optional Backup backup = 13;
+    optional Backup backup = 14;
 }

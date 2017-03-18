@@ -59,6 +59,7 @@ struct ServerConfig {
         , preferredIndex(0)
         , detectFailures(false)
         , pinMemory(false)
+        , registerMemory(true)
         , segmentSize(128 * 1024)
         , segletSize(128 * 1024)
         , maxObjectDataSize(segmentSize / 4)
@@ -83,6 +84,7 @@ struct ServerConfig {
         , preferredIndex(0)
         , detectFailures(true)
         , pinMemory(true)
+        , registerMemory(true)
         , segmentSize(Segment::DEFAULT_SEGMENT_SIZE)
         , segletSize(Seglet::DEFAULT_SEGLET_SIZE)
         , maxObjectDataSize(segmentSize / 8)
@@ -132,10 +134,12 @@ struct ServerConfig {
         config.set_services(services.toString());
         config.set_detect_failures(detectFailures);
         config.set_pin_memory(pinMemory);
+        config.set_register_memory(registerMemory);
         config.set_segment_size(segmentSize);
         config.set_seglet_size(segletSize);
         config.set_max_object_data_size(maxObjectDataSize);
         config.set_max_object_key_size(maxObjectKeySize);
+        config.set_max_cores(maxCores);
         config.set_max_cores(maxCores);
 
         if (services.has(WireFormat::MASTER_SERVICE))
@@ -181,6 +185,12 @@ struct ServerConfig {
      * to skip it for unit tests.
      */
     bool pinMemory;
+
+    /**
+     * Whether log memeory should be registered with the NIC. Setting this
+     * to false effectively disables zero-copy transmit from the log.
+     */
+    bool registerMemory;
 
     /**
      * Size of segment in the master log and of  replicas which will be stored
