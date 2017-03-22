@@ -331,15 +331,34 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
 
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     if (!tabletManager->checkAndIncrementReadCount(key)) {
+        // Check if the key belongs to a tablet under migration by the
+        // rocksteady migration protocol.
         TabletManager::Tablet t;
         bool tabletExists = tabletManager->getTablet(key, &t);
 
-        // If the tablet is being migrated using rocksteady, do not return an
-        // error to the client.
-        if (!tabletExists || t.state != TabletManager::ROCKSTEADY_MIGRATING) {
+        // If the tablet does not exist, return an error to the client.
+        if (!tabletExists) {
             return STATUS_UNKNOWN_TABLET;
-        } else {
+        }
+
+        // If the tablet exists, check it's state.
+        if (t.state == TabletManager::ROCKSTEADY_MIGRATING) {
+            // The tablet is currently under migration. Set an indicator flag.
+            // While it is possible for the tablet to change state to NORMAL
+            // before the end of this method, setting this flag allows us to
+            // increment this key's read count correctly if the read is
+            // successfull.
             isRocksteady = true;
+        } else if (t.state == TabletManager::NORMAL) {
+            // The tablet is in the NORMAL state. This is possible if the
+            // tablet changed state from ROCKSTEADY_MIGRATION to NORMAL in
+            // between the call to checkAndIncrementReadCount() and getTablet.
+            // Increment the read count in this case.
+            tabletManager->incrementReadCount(key);
+        } else {
+            // The tablet is neither in the ROCKSTEADY_MIGRATION state nor is
+            // it in the NORMAL state. Return an error to the client.
+            return STATUS_UNKNOWN_TABLET;
         }
     }
 
@@ -349,14 +368,27 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     Log::Reference reference;
     bool found = lookup(lock, key, type, buffer, &version, &reference);
     if (!found || type != LOG_ENTRY_TYPE_OBJ) {
-        // If the object belongs to a tablet under migration using rocksteady,
-        // ask the client to retry.
+        // Check if the key was marked as belonging to a tablet under migration
+        // using rocksteady.
         if (!found && isRocksteady) {
-            throw RetryException(HERE, 1000, 2000,
-                    "Tablet is currently locked for migration!");
-        } else {
-            return STATUS_OBJECT_DOESNT_EXIST;
+            TabletManager::Tablet t;
+            bool tabletExists = tabletManager->getTablet(key, &t);
+
+            // Check the current state of the tablet the key belongs to.
+            if (tabletExists && t.state ==
+                    TabletManager::ROCKSTEADY_MIGRATING) {
+                // The tablet is still under migration. Ask the client to
+                // retry after some time.
+                throw RetryException(HERE, 1000, 2000,
+                        "Tablet is currently under migration by Rocksteady!");
+            } else if (tabletExists && t.state == TabletManager::NORMAL) {
+                // The tablet is not under migration anymore. Increment the
+                // read count on the key.
+                tabletManager->incrementReadCount(key);
+            }
         }
+
+        return STATUS_OBJECT_DOESNT_EXIST;
     }
 
     if (outVersion != NULL)
@@ -371,8 +403,8 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     // Ensure the object being read is replicated durably.
     log.syncTo(reference);
 
-    // Increment the read count if the tablet is under migration using
-    // rocksteady.
+    // Increment the read count if the tablet was under migration using
+    // rocksteady when it's state was looked up.
     if (isRocksteady) {
         tabletManager->incrementReadCount(key);
     }

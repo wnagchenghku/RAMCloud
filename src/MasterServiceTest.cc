@@ -4773,33 +4773,6 @@ TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_responseSize) {
             migratedObject.getValue()), 6));
 }
 
-/**
- * This test checks if a buffer of log data returned by
- * rocksteadyMigrationPullHashes can be interpreted as a segment and
- * iterated over.
- */
-TEST_F(MasterServiceTest, rocksteadyMigrateTablet) {
-    // Add a tablet and populate it with data.
-    service->tabletManager.addTablet(99, 0, ~0UL, TabletManager::NORMAL);
-    ramcloud->write(99, "00", 2, "eragon", 6, NULL, NULL, false);
-    ramcloud->write(99, "20", 2, "aragon", 6, NULL, NULL, false);
-    ramcloud->write(99, "60", 2, "perrin", 6, NULL, NULL, false);
-    ramcloud->write(99, "90", 2, "naruto", 6, NULL, NULL, false);
-
-    // Add a destination server.
-    ServerConfig destinationConfig = masterConfig;
-    destinationConfig.master.numReplicas = 2;
-    destinationConfig.localLocator = "mock:host=master2";
-    Server* destination = cluster.addServer(destinationConfig);
-
-    // Migrate tablet from the source to the destination.
-    bool migrationStarted = ramcloud->rocksteadyMigrateTablet(99, 0, ~0UL,
-            masterServer->serverId, destination->serverId);
-
-    // The migration should have started.
-    EXPECT_TRUE(migrationStarted);
-}
-
 class MasterRecoverTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;

@@ -97,6 +97,17 @@ ObjectRpcWrapper::checkStatus()
         send();
         return false;
     }
+
+    if (responseHeader->status == STATUS_RETRY) {
+        // XXX Hack for Rocksteady. If the tablet was locked for migration,
+        // it's owner could have changed. Flush the objectFinder to make sure
+        // cache is updated.
+        LOG(NOTICE, "Server %s returned STATUS_RETRY; refreshing object map",
+                session->serviceLocator.c_str());
+        context->objectFinder->flush(tableId);
+        return false;
+    }
+
     return true;
 }
 

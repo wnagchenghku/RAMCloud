@@ -218,6 +218,15 @@ RpcWrapper::isReady() {
                         session->serviceLocator.c_str(),
                         WireFormat::opcodeSymbol(&request),
                         message);
+
+                // XXX Hack for Rocksteady. If there was a retry because the
+                // tablet was locked for migration, the objectFinder needs to
+                // be flushed because it's owner could have changed.
+                if (message != NULL && !strcmp(message,
+                        "Tablet is currently locked for migration!")) {
+                    checkStatus();
+                }
+
             } else {
                 RAMCLOUD_CLOG(NOTICE,
                         "Server %s returned STATUS_RETRY from %s request",
