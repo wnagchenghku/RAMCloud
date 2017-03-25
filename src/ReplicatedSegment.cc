@@ -96,6 +96,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
                                      uint32_t numReplicas,
                                      Tub<CycleCounter<RawMetric>>*
                                                              replicationCounter,
+                                     bool isRocksteady,
                                      uint32_t maxBytesPerWriteRpc)
     : Task(taskQueue)
     , context(context)
@@ -123,6 +124,7 @@ ReplicatedSegment::ReplicatedSegment(Context* context,
     , listEntries()
     , replicationCounter(replicationCounter)
     , unopenedStartCycles(Cycles::rdtsc())
+    , isRocksteady(isRocksteady)
     , replicas(numReplicas)
 {
     openLen = segment->getAppendedLength(&openingWriteCertificate);
@@ -836,6 +838,15 @@ ReplicatedSegment::performWrite(Replica& replica)
                 schedule();
                 return;
             }
+            // Throttle if this segment was migrated using rocksteady.
+            if (isRocksteady &&
+                    writeRpcsInFlight >= MAX_WRITE_RPCS_IN_FLIGHT / 2) {
+                RAMCLOUD_CLOG(DEBUG, "Delaying open for migrated segment %lu, "
+                        "replica %lu: too many RPCs in flight", segmentId,
+                        &replica - &replicas[0]);
+                schedule();
+                return;
+            }
 
             // If segment is being re-replicated don't send the certificate
             // for the opening write; the replica should atomically commit when
@@ -928,6 +939,16 @@ ReplicatedSegment::performWrite(Replica& replica)
 
             if (writeRpcsInFlight == MAX_WRITE_RPCS_IN_FLIGHT) {
                 RAMCLOUD_CLOG(DEBUG, "Delaying write to segment %lu, "
+                        "replica %lu: too many RPCs in flight", segmentId,
+                        &replica - &replicas[0]);
+                schedule();
+                return;
+            }
+
+            // Throttle if this segment was migrated over using rocksteady.
+            if (isRocksteady &&
+                    writeRpcsInFlight >= MAX_WRITE_RPCS_IN_FLIGHT / 2) {
+                RAMCLOUD_CLOG(DEBUG, "Delaying write to migrated segment %lu, "
                         "replica %lu: too many RPCs in flight", segmentId,
                         &replica - &replicas[0]);
                 schedule();

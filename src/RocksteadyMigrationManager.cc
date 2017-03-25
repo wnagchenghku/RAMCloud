@@ -1,6 +1,5 @@
 #include <new>
 
-#include "LogMetadata.h"
 #include "OptionParser.h"
 #include "WorkerManager.h"
 #include "MasterService.h"
@@ -77,7 +76,7 @@ RocksteadyMigrationManager::poll()
         }
     } else {
         // If the migration manager is not holding a tombstone protector and
-        // are in-progress migrations, acquire a protector.
+        // there are in-progress migrations, acquire a protector.
         if (!tombstoneProtector) {
             tombstoneProtector.construct(
                     &(context->getMasterService())->objectManager);
@@ -176,6 +175,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , sourceNumHTBuckets()
     , sourceSafeVersion()
     , prepareSourceRpc()
+    , getHeadOfLogRpc()
     , takeOwnershipRpc()
     , partitions()
     , numCompletedPartitions(0)
@@ -206,7 +206,8 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
 
     // Construct all the sidelogs.
     for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
-        sideLogs[i].construct(objectManager->getLog());
+        sideLogs[i].construct(objectManager->getLog(),
+                context->rocksteadyMigrationManager);
     }
 
     // To begin with, all sidelogs are free.
@@ -218,6 +219,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
 RocksteadyMigration::~RocksteadyMigration()
 {
     takeOwnershipRpc.destroy();
+    getHeadOfLogRpc.destroy();
     sourceSafeVersion.destroy();
     prepareSourceRpc.destroy();
 }
@@ -274,6 +276,31 @@ RocksteadyMigration::prepare()
         } else {
             return 0;
         }
+    } else if (getHeadOfLogRpc) {
+        if (getHeadOfLogRpc->isReady()) {
+            LogPosition head = getHeadOfLogRpc->wait();
+
+            // Add the tablet to the target. The tablet starts off in state
+            // ROCKSTEADY_MIGRATION.
+            tabletManager->addTablet(tableId, startKeyHash, endKeyHash,
+                    TabletManager::ROCKSTEADY_MIGRATING);
+
+            RAMCLOUD_LOG(ll, "Added tablet[0x%lx, 0x%lx] in table %lu with"
+                    " state ROCKSTEADY_MIGRATING. The tablet's logical"
+                    " creation time is [%lu, %u]", startKeyHash, endKeyHash,
+                    tableId, head.getSegmentId(), head.getSegmentOffset());
+
+            // Initiate ownership transfer for the tablet under migration.
+            uint64_t ctimeSegmentId = head.getSegmentId();
+            uint64_t ctimeSegmentOffset = head.getSegmentOffset();
+            takeOwnershipRpc.construct(context, tableId, startKeyHash,
+                    endKeyHash, (context->getMasterService())->serverId,
+                    ctimeSegmentId, ctimeSegmentOffset);
+
+            return 1;
+        } else {
+            return 0;
+        }
     } else if (prepareSourceRpc) {
         // If the prepare rpc was sent out, check for it's completion.
         if (prepareSourceRpc->isReady()) {
@@ -287,22 +314,11 @@ RocksteadyMigration::prepare()
                     " table %lu from master %lu.", *sourceSafeVersion,
                     startKeyHash, endKeyHash, tableId, sourceServerId.getId());
 
-            // Add the tablet to the target. The tablet starts off in state
-            // ROCKSTEADY_MIGRATION.
-            tabletManager->addTablet(tableId, startKeyHash, endKeyHash,
-                    TabletManager::ROCKSTEADY_MIGRATING);
-
-            RAMCLOUD_LOG(ll, "Added tablet[0x%lx, 0x%lx] in table %lu with"
-                    " state ROCKSTEADY_MIGRATING.", startKeyHash, endKeyHash,
-                    tableId);
-
-            // Initiate ownership transfer for the tablet under migration.
-            // LogPosition head = objectManager->getLog()->getHead();
-            uint64_t ctimeSegmentId = 0; // head.getSegmentId();
-            uint64_t ctimeSegmentOffset = 0; // head.getSegmentOffset();
-            takeOwnershipRpc.construct(context, tableId, startKeyHash,
-                    endKeyHash, (context->getMasterService())->serverId,
-                    ctimeSegmentId, ctimeSegmentOffset);
+            // Obtain the head of this master's log in order to initiate
+            // ownership transfer.
+            getHeadOfLogRpc.construct((context->getMasterService())->serverId,
+                    localLocator);
+            context->workerManager->handleRpc(getHeadOfLogRpc.get());
 
             return 1;
         } else {

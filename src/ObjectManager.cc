@@ -1362,6 +1362,9 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
 
     if (tombstone) {
         currentHashTableEntry.setReference(appends[0].reference.toInteger());
+        // XXX If the tablet is being migrated using rocksteady, this call
+        // can corrupt the value of totalLiveBytes. Should this call be
+        // avoided in such cases?
         log.free(currentReference);
     } else {
         objectMap.insert(key.getHash(), appends[0].reference.toInteger());

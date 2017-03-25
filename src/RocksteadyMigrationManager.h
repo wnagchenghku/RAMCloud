@@ -7,6 +7,7 @@
 #include "Dispatch.h"
 #include "ServerId.h"
 #include "Transport.h"
+#include "LogMetadata.h"
 #include "MasterClient.h"
 #include "ObjectManager.h"
 #include "TabletManager.h"
@@ -95,6 +96,60 @@ class RocksteadyMigration {
     Tub<uint64_t> sourceSafeVersion;
 
     Tub<RocksteadyPrepForMigrationRpc> prepareSourceRpc;
+
+    class RocksteadyGetHeadOfLog : public Transport::ServerRpc {
+      public:
+        explicit RocksteadyGetHeadOfLog(ServerId serverId, string localLocator)
+            : localLocator(localLocator)
+            , completed(false)
+        {
+            WireFormat::GetHeadOfLog::Request* reqHdr =
+                    requestPayload.emplaceAppend<
+                    WireFormat::GetHeadOfLog::Request>();
+
+            reqHdr->common.opcode =
+                    WireFormat::GetHeadOfLog::opcode;
+            reqHdr->common.service =
+                    WireFormat::GetHeadOfLog::service;
+            reqHdr->common.targetId = serverId.getId();
+        }
+
+        ~RocksteadyGetHeadOfLog() {}
+
+        string getClientServiceLocator()
+        {
+            return localLocator;
+        }
+
+        void sendReply()
+        {
+            completed = true;
+        }
+
+        bool isReady()
+        {
+            return completed;
+        }
+
+        LogPosition wait()
+        {
+            uint32_t respHdrLength =
+                    sizeof32(WireFormat::GetHeadOfLog::Response);
+
+            const WireFormat::GetHeadOfLog::Response* respHdr =
+                    reinterpret_cast<WireFormat::GetHeadOfLog::Response*>(
+                    replyPayload.getRange(0, respHdrLength));
+
+            return { respHdr->headSegmentId, respHdr->headSegmentOffset };
+        }
+
+      PRIVATE:
+        string localLocator;
+
+        bool completed;
+    };
+
+    Tub<RocksteadyGetHeadOfLog> getHeadOfLogRpc;
 
     Tub<RocksteadyTakeTabletOwnershipRpc> takeOwnershipRpc;
 

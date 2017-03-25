@@ -364,7 +364,7 @@ class WorkloadGenerator {
         RAMCLOUD_LOG(NOTICE, ">>> Workload: %s", workloadName.c_str());
         RAMCLOUD_LOG(NOTICE, ">>> Record Count: %d", recordCount);
         RAMCLOUD_LOG(NOTICE, ">>> Record Size: %d", recordSizeB);
-        RAMCLOUD_LOG(NOTICE, ">>> Total Table Size: %lu",
+        RAMCLOUD_LOG(NOTICE, ">>> Total Table Size: %lu MB",
                uint64_t(recordCount) * recordSizeB / (1lu << 20));
         RAMCLOUD_LOG(NOTICE, ">>> Read Percentage: %d", readPercent);
         RAMCLOUD_LOG(NOTICE, ">>> Migrate Percentage: %d", migratePercentage);
@@ -4288,6 +4288,12 @@ doWorkload(OpType type)
 
     loadGenerator.setup();
 
+    ProtoBuf::ServerList protoServerList;
+    CoordinatorClient::getServerList(context, &protoServerList);
+
+    ServerList serverList(context);
+    serverList.applyServerList(protoServerList);
+
     sendCommand("run", "running", 1, numClients-1);
 
     const uint16_t keyLen = 30;
@@ -4335,7 +4341,9 @@ doWorkload(OpType type)
     std::vector<Sample> samples{};
     samples.reserve(maxSamples);
 
+    const bool useRocksteady = true;
     Tub<MigrateTabletRpc> migration{};
+    Tub<RocksteadyMigrateTabletRpc> rocksteadyMigration{};
     uint64_t migrationStartCycles = 0;
     uint64_t migrationCycles = 0;
     const uint64_t oneSecond = Cycles::fromSeconds(1);
@@ -4346,7 +4354,7 @@ doWorkload(OpType type)
 
     const uint64_t experimentStartTicks = Cycles::rdtsc();
     const uint64_t targetEndTime =
-        experimentStartTicks + Cycles::fromSeconds(seconds);
+        experimentStartTicks + Cycles::fromSeconds(100);
 
     // Issue the reads back-to-back, and save the times.
     while (true) {
@@ -4388,7 +4396,27 @@ doWorkload(OpType type)
             !migrationCycles &&
             stop > experimentStartTicks + oneSecond)
         {
-            if (!migration) {
+            if (useRocksteady && !rocksteadyMigration) {
+                RAMCLOUD_LOG(NOTICE, "Starting migration\n");
+                uint64_t endKeyHash = ~0lu;
+                if (migratePercentage < 100)
+                    endKeyHash = endKeyHash / 100 * migratePercentage;
+                rocksteadyMigration.construct(cluster,
+                                    dataTable,
+                                    0,
+                                    endKeyHash,
+                                    ServerId(1, 0),
+                                    ServerId(2, 0));
+                migrationStartCycles = Cycles::rdtsc();
+            } else if (useRocksteady && rocksteadyMigration->isReady()) {
+                rocksteadyMigration->wait();
+                migrationCycles = Cycles::rdtsc() - migrationStartCycles;
+                double migrationS = Cycles::toSeconds(migrationCycles);
+                RAMCLOUD_LOG(NOTICE, "Migration took: %f s", migrationS);
+                rocksteadyMigration.destroy();
+            }
+
+            if (!useRocksteady && !migration) {
                 RAMCLOUD_LOG(NOTICE, "Starting migration\n");
                 uint64_t endKeyHash = ~0lu;
                 if (migratePercentage < 100)
@@ -4399,7 +4427,7 @@ doWorkload(OpType type)
                                     endKeyHash,
                                     ServerId(2, 0));
                 migrationStartCycles = Cycles::rdtsc();
-            } else if (migration->isReady()) {
+            } else if (!useRocksteady && migration->isReady()) {
                 migration->wait();
                 migrationCycles = Cycles::rdtsc() - migrationStartCycles;
                 double migrationS = Cycles::toSeconds(migrationCycles);
@@ -4475,6 +4503,8 @@ doWorkload(OpType type)
                PerfStats::printClusterStats(&stats[i - 1], &stats[i]).c_str());
         }
         dumpSamples(samples, experimentStartTicks);
+        printf("\n");
+        fflush(stdout);
     } else {
         int valuesInLine = 0;
         for (Sample& sample : samples) {
@@ -5892,12 +5922,11 @@ void
 rocksteadySimpleMigration()
 {
     uint16_t keyLengthB = 30;
-    uint32_t numObjects = 40000000;
+    uint32_t numObjects = 10000000;
 
     uint64_t tableId = cluster->createTable("rocksteadySimpleMigration");
-    fillTable(tableId, numObjects, keyLengthB, objectSize);
 
-#if 0
+    // First, fill up the table.
     for (uint32_t i = 0; i < numObjects; i++) {
         char primaryKey[keyLengthB];
         snprintf(primaryKey, keyLengthB, "p%0*d", keyLengthB - 2, i);
@@ -5908,7 +5937,6 @@ rocksteadySimpleMigration()
         cluster->write(tableId, primaryKey, keyLengthB,
                 value.getRange(0, objectSize), objectSize);
     }
-#endif
 
     ProtoBuf::ServerList protoServerList;
     CoordinatorClient::getServerList(context, &protoServerList);
@@ -5922,6 +5950,7 @@ rocksteadySimpleMigration()
     uint64_t startKeyHash = 0UL;
     uint64_t endKeyHash = ~0UL;
 
+    // Request for a migration using the rocksteady protocol.
     bool migrationStarted = cluster->rocksteadyMigrateTablet(tableId,
             startKeyHash, endKeyHash, sourceServerId, targetServerId);
 
@@ -5933,30 +5962,18 @@ rocksteadySimpleMigration()
         return;
     }
 
-    Cycles::sleep(1000000 * 2);
+    uint64_t migrationTimeEstimate =
+            (numObjects * (objectSize + keyLengthB + 30)) / (1024 * 1024 * 1024);
+    Cycles::sleep(1000000 * (30 + migrationTimeEstimate));
 
-    Buffer beforeStatsBuffer;
-    cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
-            &beforeStatsBuffer);
+    // Make sure that every object can be read after the migration has been
+    // started.
+    for (uint32_t i = 0; i < numObjects; i++) {
+        char primaryKey[keyLengthB];
+        snprintf(primaryKey, keyLengthB, "p%0*d", keyLengthB - 2, i);
 
-    Cycles::sleep(1000000 * 2);
-
-    Buffer afterStatsBuffer;
-    cluster->serverControlAll(WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
-            &afterStatsBuffer);
-
-    Cycles::sleep(1000000 * 30);
-
-    PerfStats::Diff diff;
-    PerfStats::clusterDiff(&beforeStatsBuffer, &afterStatsBuffer, &diff);
-
-    for (uint64_t j = 0; j < diff["serverId"].size(); j++) {
-        printf("%f %.2f %.2f\n",
-                diff["serverId"][j],
-                diff["dispatchActiveCycles"][j] /
-                        diff["collectionTime"][j],
-                diff["workerActiveCycles"][j] /
-                        diff["collectionTime"][j]);
+        Buffer value;
+        cluster->read(tableId, primaryKey, keyLengthB, &value);
     }
 }
 
@@ -6529,6 +6546,9 @@ try
     po::positional_options_description pos_desc;
     pos_desc.add("testName", -1);
     OptionParser optionParser(clusterperfOptions, pos_desc, argc, argv);
+
+    dup2(Logger::get().getLogFile(), 1);
+    dup2(Logger::get().getLogFile(), 2);
 
     RamCloud r(&optionParser.options);
     context = r.clientContext;

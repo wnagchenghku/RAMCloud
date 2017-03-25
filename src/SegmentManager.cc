@@ -350,7 +350,12 @@ SegmentManager::allocSideSegment(uint32_t flags, LogSegment* replacing)
         // This survivor will inherit the replicatedSegment of the one it
         // replaces when memoryCleaningComplete() is invoked.
     } else {
-        s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
+        if (flags & FOR_ROCKSTEADY) {
+            s->replicatedSegment = replicaManager.allocateNonHead(s->id, s,
+                                                                  true);
+        } else {
+            s->replicatedSegment = replicaManager.allocateNonHead(s->id, s);
+        }
         segmentsOnDiskHistogram.storeSample(++segmentsOnDisk);
         nextSegmentId++;
     }

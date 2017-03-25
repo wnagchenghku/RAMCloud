@@ -105,7 +105,12 @@ class SegmentManager {
         /// The segment being allocated will be used for cleaning. This simply
         /// tells SegmentManager which pool of memory to allocate from. This
         /// flag only makes sense in the allocSideSegment method.
-        FOR_CLEANING = 2
+        FOR_CLEANING = 2,
+
+        /// The segment being allocated will hold migrated data. This tells the
+        /// SegmentManager how to allocate a replicated segment for this
+        /// segment.
+        FOR_ROCKSTEADY = 4
     };
 
     SegmentManager(Context* context,

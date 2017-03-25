@@ -68,6 +68,7 @@ class SideLog : public AbstractLog {
   public:
     explicit SideLog(Log* log);
     SideLog(Log* log, LogCleaner* cleaner);
+    SideLog(Log* log, RocksteadyMigrationManager* manager);
     ~SideLog();
     void commit();
 
@@ -100,6 +101,13 @@ class SideLog : public AbstractLog {
     /// This is set to true only when the special constructor made for the log
     /// cleaner is invoked.
     const bool forCleaner;
+
+    /// If true, request the segment manager that all replicated segments be
+    /// provided an isolated task queue to enqueue their replication operations
+    /// on. This is required by the rocksteady protocol to ensure that
+    /// re-replication of migrated segments does not interfere with replication
+    /// of segments belonging to the main log.
+    const bool isRocksteady;
 
     DISALLOW_COPY_AND_ASSIGN(SideLog);
 };

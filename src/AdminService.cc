@@ -235,7 +235,11 @@ AdminService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
             TabletManager::Tablet tablet;
 
             if (!context->getMasterService()->tabletManager.getTablet(
-                    key, &tablet) || tablet.state != TabletManager::NORMAL) {
+                    key, &tablet) ||
+                    (tablet.state != TabletManager::NORMAL &&
+                    // If the tablet is under migration using the rocksteady
+                    // protocol, then it can still service requests.
+                    tablet.state != TabletManager::ROCKSTEADY_MIGRATING)) {
                 respHdr->common.status = STATUS_UNKNOWN_TABLET;
                 return;
             }

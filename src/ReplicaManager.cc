@@ -55,6 +55,7 @@ ReplicaManager::ReplicaManager(Context* context,
     , replicatedSegmentPool(ReplicatedSegment::sizeOf(numReplicas))
     , replicatedSegmentList()
     , taskQueue()
+    , rocksteadyTaskQueue()
     , writeRpcsInFlight(0)
     , freeRpcsInFlight(0)
     , replicationEpoch()
@@ -330,11 +331,14 @@ ReplicaManager::allocateHead(uint64_t segmentId,
  *      is destroyed.
  */
 ReplicatedSegment*
-ReplicaManager::allocateNonHead(uint64_t segmentId, const Segment* segment)
+ReplicaManager::allocateNonHead(uint64_t segmentId, const Segment* segment,
+                                bool isRocksteady)
 {
     CycleCounter<RawMetric> _(&metrics->master.replicaManagerTicks);
     Lock lock(dataMutex);
-    return allocateSegment(lock, segmentId, segment, false);
+    return (isRocksteady ?
+            allocateSegment(lock, segmentId, segment, false, isRocksteady) :
+            allocateSegment(lock, segmentId, segment, false));
 }
 
 /**
@@ -375,6 +379,35 @@ ReplicaManager::proceed()
                  taskQueue.outstandingTasks());
 }
 
+bool
+ReplicaManager::proceedOnRocksteady()
+{
+    Lock __(dataMutex);
+
+    if (rocksteadyTaskQueue.isIdle()) {
+        // There is no work queued up on the rocksteady re-replication
+        // queue.
+        return true;
+    }
+
+    if (!taskQueue.isIdle()) {
+        // If there are regular writes to be synced to backups, return
+        // immediately.
+        return false;
+    }
+
+    // Perform a batch of tasks on the rocksteady re-replication queue.
+    for (uint32_t i = 0; i < 1; i++) {
+        rocksteadyTaskQueue.performTask();
+    }
+
+    if (rocksteadyTaskQueue.isIdle()) {
+        return true;
+    }
+
+    return false;
+}
+
 // - private -
 
 /**
@@ -409,25 +442,42 @@ ReplicatedSegment*
 ReplicaManager::allocateSegment(const Lock& lock,
                                 uint64_t segmentId,
                                 const Segment* segment,
-                                bool isLogHead)
+                                bool isLogHead,
+                                bool isRocksteady)
 {
     LOG(DEBUG, "Allocating new replicated segment for <%s,%lu>",
         masterId->toString().c_str(), segmentId);
     auto* p = replicatedSegmentPool.malloc();
     if (p == NULL)
         DIE("Out of memory");
-    ReplicatedSegment* replicatedSegment =
-        new(p) ReplicatedSegment(context, taskQueue, *backupSelector, *this,
-                                 writeRpcsInFlight, freeRpcsInFlight,
-                                 *replicationEpoch,
-                                 dataMutex, segmentId, segment,
-                                 isLogHead, *masterId, numReplicas,
-                                 &replicationCounter);
-    replicatedSegmentList.push_back(*replicatedSegment);
+    if (!isRocksteady) {
+        ReplicatedSegment* replicatedSegment =
+            new(p) ReplicatedSegment(context, taskQueue, *backupSelector, *this,
+                                     writeRpcsInFlight, freeRpcsInFlight,
+                                     *replicationEpoch,
+                                     dataMutex, segmentId, segment,
+                                     isLogHead, *masterId, numReplicas,
+                                     &replicationCounter);
+        replicatedSegmentList.push_back(*replicatedSegment);
 
-    // ReplicatedSegment's constructor has scheduled the open.
+        // ReplicatedSegment's constructor has scheduled the open.
 
-    return replicatedSegment;
+        return replicatedSegment;
+    } else {
+        ReplicatedSegment* replicatedSegment =
+            new(p) ReplicatedSegment(context, rocksteadyTaskQueue,
+                                     *backupSelector, *this,
+                                     writeRpcsInFlight, freeRpcsInFlight,
+                                     *replicationEpoch,
+                                     dataMutex, segmentId, segment,
+                                     isLogHead, *masterId, numReplicas,
+                                     &replicationCounter, true);
+        replicatedSegmentList.push_back(*replicatedSegment);
+
+        // ReplicatedSegment's constructor has scheduled the open.
+
+        return replicatedSegment;
+    }
 }
 
 /**

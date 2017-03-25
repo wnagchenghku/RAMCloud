@@ -383,6 +383,7 @@ class ReplicatedSegment : public Task {
                       ServerId masterId,
                       uint32_t numReplicas,
                       Tub<CycleCounter<RawMetric>>* replicationCounter = NULL,
+                      bool isRocksteady = false,
                       uint32_t maxBytesPerWriteRpc = 1024 * 1024);
     ~ReplicatedSegment();
 
@@ -609,6 +610,8 @@ class ReplicatedSegment : public Task {
      * was constructed.
      */
     uint64_t unopenedStartCycles;
+
+    const bool isRocksteady;
 
     /**
      * An array of #ReplicaManager::replica backups on which the segment is

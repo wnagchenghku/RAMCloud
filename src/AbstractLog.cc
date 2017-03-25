@@ -200,6 +200,8 @@ AbstractLog::free(Reference reference)
         type == LOG_ENTRY_TYPE_RPCRESULT ||
         type == LOG_ENTRY_TYPE_PREP ||
         type == LOG_ENTRY_TYPE_TXPLIST)
+        if (totalLiveBytes < lengthWithMetadata)
+            return;
         totalLiveBytes -= lengthWithMetadata;
 }
 

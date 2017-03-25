@@ -77,15 +77,18 @@ class ReplicaManager
                                     ReplicatedSegment* precedingSegment);
         __attribute__((warn_unused_result));
     ReplicatedSegment* allocateNonHead(uint64_t segmentId,
-                                       const Segment* segment);
+                                       const Segment* segment,
+                                       bool isRocksteady = false);
         __attribute__((warn_unused_result));
     void startFailureMonitor();
     void haltFailureMonitor();
     void proceed();
+    bool proceedOnRocksteady();
 
   PRIVATE:
     ReplicatedSegment* allocateSegment(const Lock& lock, uint64_t segmentId,
-                                       const Segment* segment, bool isLogHead);
+                                       const Segment* segment, bool isLogHead,
+                                       bool isRocksteady = false);
         __attribute__((warn_unused_result));
 
     /// Shared RAMCloud information.
@@ -155,6 +158,15 @@ class ReplicaManager
      * on enqueued operations whenever taskQueue.performTask() is called.
      */
     TaskQueue taskQueue;
+
+    /**
+     * Enqueues segments that have been migrated using the rocksteady protocol
+     * and need re-replication. Since the number of migrated segments can be
+     * really large (1 GB of migrated data => 128 segments), isolating them
+     * onto a seperate task queue allows for replication operations on the
+     * regular log to carry on with minimal interference.
+     */
+    TaskQueue rocksteadyTaskQueue;
 
     /**
      * Number of collective outstanding write rpcs to all backups.

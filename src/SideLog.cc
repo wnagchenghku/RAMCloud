@@ -36,7 +36,8 @@ SideLog::SideLog(Log* log)
       segmentManager(log->segmentManager),
       replicaManager(log->replicaManager),
       segments(),
-      forCleaner(false)
+      forCleaner(false),
+      isRocksteady(false)
 {
 }
 
@@ -58,7 +59,22 @@ SideLog::SideLog(Log* log, LogCleaner* cleaner)
       segmentManager(log->segmentManager),
       replicaManager(log->replicaManager),
       segments(),
-      forCleaner(true)
+      forCleaner(true),
+      isRocksteady(false)
+{
+}
+
+SideLog::SideLog(Log* log, RocksteadyMigrationManager* manager)
+    : AbstractLog(log->entryHandlers,
+                  log->segmentManager,
+                  log->replicaManager,
+                  log->segmentSize),
+      log(log),
+      segmentManager(log->segmentManager),
+      replicaManager(log->replicaManager),
+      segments(),
+      forCleaner(false),
+      isRocksteady(true)
 {
 }
 
@@ -100,6 +116,12 @@ SideLog::commit()
     LogSegment* lastSegmentAllocated = segments.back();
     lastSegmentAllocated->close();
     lastSegmentAllocated->replicatedSegment->close();
+
+    if (isRocksteady) {
+        while(!replicaManager->proceedOnRocksteady()) {
+            Cycles::sleep(10);
+        }
+    }
 
     // Ensure that replication has completed on all segments.
     foreach (LogSegment* segment, segments)
@@ -153,6 +175,9 @@ SideLog::allocNextSegment(bool mustNotFail)
     if (mustNotFail)
         segment = segmentManager->allocSideSegment(
             SegmentManager::MUST_NOT_FAIL, NULL);
+    else if (isRocksteady)
+        segment = segmentManager->allocSideSegment(
+            SegmentManager::FOR_ROCKSTEADY, NULL);
     else
         segment = segmentManager->allocSideSegment(0, NULL);
 
