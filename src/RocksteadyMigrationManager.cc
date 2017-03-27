@@ -15,6 +15,10 @@
 
 // #define ROCKSTEADY_RPC_UTILIZATION
 
+// Uncomment to prevent migrated segments from using a seperate task queue
+// for (re-)replication.
+// #define ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
+
 namespace RAMCloud {
 
 /**
@@ -206,8 +210,12 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
 
     // Construct all the sidelogs.
     for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
+#ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
+        sideLogs[i].construct(objectManager->getLog());
+#else
         sideLogs[i].construct(objectManager->getLog(),
                 context->rocksteadyMigrationManager);
+#endif
     }
 
     // To begin with, all sidelogs are free.
