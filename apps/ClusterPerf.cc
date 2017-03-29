@@ -4354,7 +4354,7 @@ doWorkload(OpType type)
 
     const uint64_t experimentStartTicks = Cycles::rdtsc();
     const uint64_t targetEndTime =
-        experimentStartTicks + Cycles::fromSeconds(100);
+        experimentStartTicks + Cycles::fromSeconds(seconds);
 
     // Issue the reads back-to-back, and save the times.
     while (true) {
@@ -4371,7 +4371,7 @@ doWorkload(OpType type)
             cluster->read(dataTable, key, keyLen, &readBuf);
             stop = Cycles::rdtsc();
             if (type == READ_TYPE) {
-                if (samples.size() < maxSamples && (readCount & 0xf) == 0)
+                if (samples.size() < maxSamples)
                     samples.emplace_back(start, stop, dataTable, 0);
             }
             readCount++;
