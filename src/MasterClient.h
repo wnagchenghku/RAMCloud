@@ -77,6 +77,12 @@ class MasterClient {
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
+    static uint32_t rocksteadyMigrationPriorityHashes(Context* context,
+            ServerId sourceServerId, uint64_t tableId,
+            uint64_t startKeyHash, uint64_t endKeyHash,
+            uint64_t tombstoneSafeVersion, uint64_t numRequestedHashes,
+            Buffer* requestedPriorityHashes, Buffer* response,
+            SegmentCertificate* certificate=NULL);
     static uint32_t rocksteadyMigrationPullHashes(Context* context,
             ServerId sourceServerId, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
@@ -278,6 +284,20 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveIndexEntryRpc);
+};
+
+class RocksteadyMigrationPriorityHashesRpc : public ServerIdRpcWrapper {
+  public:
+    RocksteadyMigrationPriorityHashesRpc(Context* context,
+            ServerId sourceServerId, uint64_t tableId, uint64_t startKeyHash,
+            uint64_t endKeyHash, uint64_t tombstoneSafeVersion,
+            uint64_t numRequestedHashes, Buffer* requestedPriorityHashes,
+            Buffer* response);
+    ~RocksteadyMigrationPriorityHashesRpc() {}
+    uint32_t wait(SegmentCertificate* certificate = NULL);
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RocksteadyMigrationPriorityHashesRpc);
 };
 
 /**

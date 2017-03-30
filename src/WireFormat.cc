@@ -130,6 +130,8 @@ opcodeSymbol(uint32_t opcode)
         case ROCKSTEADY_SIDELOG_COMMIT:    return "ROCKSTEADY_SIDELOG_COMMIT";
         case ROCKSTEADY_TAKE_TABLET_OWNERSHIP:
                                     return "ROCKSTEADY_TAKE_TABLET_OWNERSHIP";
+        case ROCKSTEADY_MIGRATION_PRIORITY_HASHES:
+                                return "ROCKSTEADY_MIGRATION_PRIORITY_HASHES";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 

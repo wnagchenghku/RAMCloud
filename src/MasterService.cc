@@ -219,6 +219,11 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::RemoveIndexEntry, MasterService,
                         &MasterService::removeIndexEntry>(rpc);
             break;
+        case WireFormat::RocksteadyMigrationPriorityHashes::opcode:
+            callHandler<WireFormat::RocksteadyMigrationPriorityHashes,
+                        MasterService,
+                        &MasterService::rocksteadyMigrationPriorityHashes>(rpc);
+            break;
         case WireFormat::RocksteadyMigrationPullHashes::opcode:
             callHandler<WireFormat::RocksteadyMigrationPullHashes,
                         MasterService,
@@ -2063,6 +2068,59 @@ MasterService::requestRemoveIndexEntries(Object& object)
     }
 }
 
+void
+MasterService::rocksteadyMigrationPriorityHashes(
+        const WireFormat::RocksteadyMigrationPriorityHashes::Request* reqHdr,
+        WireFormat::RocksteadyMigrationPriorityHashes::Response* respHdr,
+        Rpc* rpc)
+{
+    const uint64_t tableId = reqHdr->tableId;
+    const uint64_t startKeyHash = reqHdr->startKeyHash;
+    const uint64_t endKeyHash = reqHdr->endKeyHash;
+    const uint64_t tombstoneSafeVersion = reqHdr->tombstoneSafeVersion;
+    const uint64_t numRequestedHashes = reqHdr->numRequestedHashes;
+
+    Buffer* requestedHashes = rpc->requestPayload;
+    uint32_t requestOffset = sizeof32(*reqHdr);
+
+    Buffer* response = rpc->replyPayload;
+    uint32_t responseOffset = sizeof32(*respHdr);
+
+    SegmentCertificate certificate;
+    uint32_t numReturnedLogEntries = 0;
+
+    TabletManager::Tablet sourceTablet;
+    bool found = tabletManager.getTablet(tableId, startKeyHash, endKeyHash,
+            &sourceTablet);
+
+    if (!found) {
+        LOG(NOTICE, "Received a priority hashes migration request for a"
+                " tablet that does not exist on this master: tablet[0x%lx,"
+                " 0x%lx], tableId %lu", startKeyHash, endKeyHash, tableId);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
+    }
+
+    if (sourceTablet.state != TabletManager::LOCKED_FOR_MIGRATION) {
+        LOG(NOTICE, "Received a priority hashes migration request for a"
+                " tablet that was not previously locked for migration:"
+                " tablet[0x%lx, 0x%lx], tableId %lu", startKeyHash,
+                endKeyHash, tableId);
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+        return;
+    }
+
+    numReturnedLogEntries = objectManager.rocksteadyMigrationPriorityHashes(
+            tableId, startKeyHash, endKeyHash, tombstoneSafeVersion,
+            numRequestedHashes, requestedHashes, requestOffset, response,
+            responseOffset, &certificate);
+
+    respHdr->numReturnedLogEntries = numReturnedLogEntries;
+    respHdr->certificate = certificate;
+    respHdr->common.status = STATUS_OK;
+    return;
+}
+
 /**
  * Top level server method to handle the ROCKSTEADY_MIGRATION_PULL_HASHES
  * request.
@@ -2076,7 +2134,8 @@ MasterService::requestRemoveIndexEntries(Object& object)
  *
  * \copydetails Service::ping
  */
-void MasterService::rocksteadyMigrationPullHashes(
+void
+MasterService::rocksteadyMigrationPullHashes(
         const WireFormat::RocksteadyMigrationPullHashes::Request* reqHdr,
         WireFormat::RocksteadyMigrationPullHashes::Response* respHdr,
         Rpc* rpc)
@@ -2157,7 +2216,8 @@ void MasterService::rocksteadyMigrationPullHashes(
     return;
 }
 
-void MasterService::rocksteadyMigrationReplay(
+void
+MasterService::rocksteadyMigrationReplay(
         const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
         WireFormat::RocksteadyMigrationReplay::Response* respHdr,
         Rpc* rpc)
@@ -2181,7 +2241,8 @@ void MasterService::rocksteadyMigrationReplay(
     return;
 }
 
-void MasterService::rocksteadyMigrateTablet(
+void
+MasterService::rocksteadyMigrateTablet(
         const WireFormat::RocksteadyMigrateTablet::Request* reqHdr,
         WireFormat::RocksteadyMigrateTablet::Response* respHdr,
         Rpc* rpc)
@@ -2251,7 +2312,8 @@ void MasterService::rocksteadyMigrateTablet(
  *
  * \copydetails Service::ping
  */
-void MasterService::rocksteadyPrepForMigration(
+void
+MasterService::rocksteadyPrepForMigration(
         const WireFormat::RocksteadyPrepForMigration::Request* reqHdr,
         WireFormat::RocksteadyPrepForMigration::Response* respHdr,
         Rpc* rpc)

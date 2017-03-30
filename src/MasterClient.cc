@@ -760,6 +760,52 @@ RemoveIndexEntryRpc::handleIndexDoesntExist()
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
+uint32_t
+MasterClient::rocksteadyMigrationPriorityHashes(Context* context,
+        ServerId sourceServerId, uint64_t tableId, uint64_t startKeyHash,
+        uint64_t endKeyHash, uint64_t tombstoneSafeVersion,
+        uint64_t numRequestedHashes, Buffer* requestedPriorityHashes,
+        Buffer* response, SegmentCertificate* certificate)
+{
+    RocksteadyMigrationPriorityHashesRpc rpc(context, sourceServerId,
+            tableId, startKeyHash, endKeyHash, tombstoneSafeVersion,
+            numRequestedHashes, requestedPriorityHashes, response);
+    return rpc.wait(certificate);
+}
+
+RocksteadyMigrationPriorityHashesRpc::RocksteadyMigrationPriorityHashesRpc(
+        Context* context, ServerId sourceServerId, uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash,
+        uint64_t tombstoneSafeVersion, uint64_t numRequestedHashes,
+        Buffer* requestedPriorityHashes, Buffer* response)
+    : ServerIdRpcWrapper(context, sourceServerId,
+            sizeof(WireFormat::RocksteadyMigrationPriorityHashes::Response),
+            response)
+{
+    WireFormat::RocksteadyMigrationPriorityHashes::Request* reqHdr(
+            allocHeader<WireFormat::RocksteadyMigrationPriorityHashes>(
+            sourceServerId));
+    reqHdr->tableId = tableId;
+    reqHdr->startKeyHash = startKeyHash;
+    reqHdr->endKeyHash = endKeyHash;
+    reqHdr->tombstoneSafeVersion = tombstoneSafeVersion;
+    reqHdr->numRequestedHashes = numRequestedHashes;
+    request.append(requestedPriorityHashes, 0, requestedPriorityHashes->size());
+    send();
+}
+
+uint32_t
+RocksteadyMigrationPriorityHashesRpc::wait(SegmentCertificate* certificate)
+{
+    waitAndCheckErrors();
+    const WireFormat::RocksteadyMigrationPriorityHashes::Response* respHdr(
+            getResponseHeader<WireFormat::RocksteadyMigrationPriorityHashes>());
+    if (certificate != NULL) {
+        *certificate = respHdr->certificate;
+    }
+    return respHdr->numReturnedLogEntries;
+}
+
 /**
  * Request that a master migrate a fraction of a tablet.
  *

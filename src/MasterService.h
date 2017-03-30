@@ -261,6 +261,12 @@ class MasterService : public Service {
                 Rpc* rpc);
     void requestInsertIndexEntries(Object& object);
     void requestRemoveIndexEntries(Object& object);
+    void rocksteadyMigrationPriorityHashes(
+                const WireFormat::RocksteadyMigrationPriorityHashes::Request*
+                reqHdr,
+                WireFormat::RocksteadyMigrationPriorityHashes::Response*
+                respHdr,
+                Rpc* rpc);
     void rocksteadyMigrationPullHashes(
                 const WireFormat::RocksteadyMigrationPullHashes::Request*
                 reqHdr,

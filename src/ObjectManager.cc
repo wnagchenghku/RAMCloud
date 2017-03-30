@@ -3513,4 +3513,41 @@ ObjectManager::rocksteadyMigrationPullHashes(uint64_t tableId,
     return numReturnedBytes = numBytesInResponse - respHdrSize;
 }
 
+uint32_t
+ObjectManager::rocksteadyMigrationPriorityHashes(uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash,
+        uint64_t tombstoneSafeVersion, uint64_t numRequestedHashes,
+        Buffer* requestedHashes, uint32_t requestOffset,
+        Buffer* response, uint32_t responseOffset,
+        SegmentCertificate* certificate)
+{
+    bool zeroCopy = true;
+    uint32_t numReturnedLogEntries = 0;
+    uint32_t numBytesInResponse = responseOffset;
+    const uint32_t maxBytesInResponse = 10 * 1024 * 1024;
+
+    RocksteadyBufferCertificate bufferCertificate;
+
+    for (uint64_t numReturnedLogEntries = 0;
+            numReturnedLogEntries < numRequestedHashes;
+            numReturnedLogEntries++) {
+        if (numBytesInResponse >= maxBytesInResponse) {
+            break;
+        }
+
+        uint64_t* currentHash = reinterpret_cast<uint64_t*>(
+                requestedHashes->getRange(requestOffset, sizeof32(uint64_t)));
+
+        // TODO: Perform a hash table lookup on currentHash followed by
+        // an append to response.
+
+        requestOffset += sizeof32(uint64_t);
+    }
+
+    bufferCertificate.createSegmentCertificate(
+            numBytesInResponse - responseOffset, certificate);
+
+    return numReturnedLogEntries;
+}
+
 } //enamespace RAMCloud

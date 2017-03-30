@@ -107,6 +107,12 @@ class ObjectManager : public LogEntryHandlers,
     uint64_t getSafeVersion();
     bool raiseSafeVersion(uint64_t minimum);
     uint64_t getNumHashTableBuckets();
+    uint32_t rocksteadyMigrationPriorityHashes(uint64_t tableId,
+                uint64_t startKeyHash, uint64_t endKeyHash,
+                uint64_t tombstoneSafeVersion, uint64_t numRequestedHashes,
+                Buffer* requestedHashes, uint32_t requestOffset,
+                Buffer* response, uint32_t responseOffset,
+                SegmentCertificate* certificate);
     uint32_t rocksteadyMigrationPullHashes(uint64_t tableId,
                 uint64_t startKeyHash, uint64_t endKeyHash,
                 uint64_t currentHTBucket, uint64_t currentHTBucketEntry,
