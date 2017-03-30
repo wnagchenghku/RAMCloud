@@ -4773,6 +4773,46 @@ TEST_F(MasterServiceTest, rocksteadyMigrationPullHashes_responseSize) {
             migratedObject.getValue()), 6));
 }
 
+TEST_F(MasterServiceTest, rocksteadyMigrationPriorityHashes) {
+    service->tabletManager.addTablet(99, 0, ~0UL, TabletManager::NORMAL);
+    ramcloud->write(99, "00", 2, "eragon", 6, NULL, NULL, false);
+
+    uint64_t numHTBuckets = 0;
+    uint64_t safeVersion = MasterClient::rocksteadyPrepForMigration(&context,
+            masterServer->serverId, 99, 0UL, ~0UL, &numHTBuckets);
+
+    EXPECT_EQ(2UL, safeVersion);
+    EXPECT_EQ(16384UL, numHTBuckets);
+
+    Key priorityKey(99, "00", 2);
+
+    Buffer requestedHashes;
+    Buffer response;
+    uint32_t numReturnedLogEntries = 0;
+
+    SegmentCertificate certificate;
+
+    requestedHashes.emplaceAppend<uint64_t>(priorityKey.getHash());
+
+    numReturnedLogEntries = MasterClient::rocksteadyMigrationPriorityHashes(
+            &context, masterServer->serverId, 99, 0UL, ~0UL, 2, 1,
+            &requestedHashes, &response, &certificate);
+
+    response.truncateFront(
+            sizeof32(WireFormat::RocksteadyMigrationPriorityHashes::Response)
+            + 2);
+
+    EXPECT_EQ(1U, numReturnedLogEntries);
+    EXPECT_EQ(35UL, response.size());
+
+    Object migratedObject(response, 0, 35UL);
+
+    EXPECT_EQ("00", string(static_cast<const char *>(
+            migratedObject.getKey()), 2));
+    EXPECT_EQ("eragon", string(static_cast<const char *>(
+            migratedObject.getValue()), 6));
+}
+
 class MasterRecoverTest : public ::testing::Test {
   public:
     TestLog::Enable logEnabler;
