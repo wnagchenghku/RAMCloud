@@ -110,9 +110,8 @@ class ObjectManager : public LogEntryHandlers,
     uint32_t rocksteadyMigrationPriorityHashes(uint64_t tableId,
                 uint64_t startKeyHash, uint64_t endKeyHash,
                 uint64_t tombstoneSafeVersion, uint64_t numRequestedHashes,
-                Buffer* requestedHashes, uint32_t requestOffset,
-                Buffer* response, uint32_t responseOffset,
-                SegmentCertificate* certificate);
+                Buffer* requestedHashes, uint32_t reqHdrSize, Buffer* response,
+                uint32_t respHdrSize, SegmentCertificate* certificate);
     uint32_t rocksteadyMigrationPullHashes(uint64_t tableId,
                 uint64_t startKeyHash, uint64_t endKeyHash,
                 uint64_t currentHTBucket, uint64_t currentHTBucketEntry,

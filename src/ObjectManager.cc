@@ -3517,35 +3517,67 @@ uint32_t
 ObjectManager::rocksteadyMigrationPriorityHashes(uint64_t tableId,
         uint64_t startKeyHash, uint64_t endKeyHash,
         uint64_t tombstoneSafeVersion, uint64_t numRequestedHashes,
-        Buffer* requestedHashes, uint32_t requestOffset,
-        Buffer* response, uint32_t responseOffset,
-        SegmentCertificate* certificate)
+        Buffer* requestedHashes, uint32_t reqHdrSize, Buffer* response,
+        uint32_t respHdrSize, SegmentCertificate* certificate)
 {
-    bool zeroCopy = true;
+    const bool zeroCopy = true;
+    const bool includeLogEntryHeader = true;
+
+    uint32_t requestOffset = reqHdrSize;
+
     uint32_t numReturnedLogEntries = 0;
-    uint32_t numBytesInResponse = responseOffset;
-    const uint32_t maxBytesInResponse = 10 * 1024 * 1024;
+    uint32_t numBytesInResponse = respHdrSize;
+    const uint32_t maxBytesInResponse = 10 * 1024;
 
     RocksteadyBufferCertificate bufferCertificate;
 
-    for (uint64_t numReturnedLogEntries = 0;
-            numReturnedLogEntries < numRequestedHashes;
-            numReturnedLogEntries++) {
+    for (uint64_t i = 0; i < numRequestedHashes; i++) {
+        uint64_t* currentHash = reinterpret_cast<uint64_t*>(
+                requestedHashes->getRange(requestOffset, sizeof32(uint64_t)));
+        requestOffset += sizeof32(uint64_t);
+
+        objectMap.prefetchBucket(*currentHash);
+        HashTableBucketLock lock(*this, *currentHash);
+
+        HashTable::Candidates candidates;
+        objectMap.lookup(*currentHash, candidates);
+
+        if (candidates.isDone()) {
+            // TODO: Add a tombstone to the response here.
+            continue;
+        }
+
+        for (; !candidates.isDone(); candidates.next()) {
+            uint32_t entryLength = 0;
+            uint32_t headerLength = 0;
+
+            Log::Reference reference(candidates.getReference());
+            LogEntryType type = log.getEntry(reference, *response, zeroCopy,
+                    &entryLength, includeLogEntryHeader, &headerLength);
+
+            if (type != LOG_ENTRY_TYPE_OBJ) {
+                continue;
+            }
+
+            Object object(*response, numBytesInResponse + headerLength,
+                    entryLength);
+
+            if (object.getTableId() == tableId &&
+                    object.getPKHash() == *currentHash) {
+                numBytesInResponse += headerLength + entryLength;
+                numReturnedLogEntries++;
+            } else {
+                response->truncate(numBytesInResponse);
+            }
+        }
+
         if (numBytesInResponse >= maxBytesInResponse) {
             break;
         }
-
-        uint64_t* currentHash = reinterpret_cast<uint64_t*>(
-                requestedHashes->getRange(requestOffset, sizeof32(uint64_t)));
-
-        // TODO: Perform a hash table lookup on currentHash followed by
-        // an append to response.
-
-        requestOffset += sizeof32(uint64_t);
     }
 
     bufferCertificate.createSegmentCertificate(
-            numBytesInResponse - responseOffset, certificate);
+            numBytesInResponse - respHdrSize, certificate);
 
     return numReturnedLogEntries;
 }

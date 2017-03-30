@@ -2081,10 +2081,10 @@ MasterService::rocksteadyMigrationPriorityHashes(
     const uint64_t numRequestedHashes = reqHdr->numRequestedHashes;
 
     Buffer* requestedHashes = rpc->requestPayload;
-    uint32_t requestOffset = sizeof32(*reqHdr);
+    uint32_t reqHdrSize = sizeof32(*reqHdr);
 
     Buffer* response = rpc->replyPayload;
-    uint32_t responseOffset = sizeof32(*respHdr);
+    uint32_t respHdrSize = sizeof32(*respHdr);
 
     SegmentCertificate certificate;
     uint32_t numReturnedLogEntries = 0;
@@ -2112,8 +2112,8 @@ MasterService::rocksteadyMigrationPriorityHashes(
 
     numReturnedLogEntries = objectManager.rocksteadyMigrationPriorityHashes(
             tableId, startKeyHash, endKeyHash, tombstoneSafeVersion,
-            numRequestedHashes, requestedHashes, requestOffset, response,
-            responseOffset, &certificate);
+            numRequestedHashes, requestedHashes, reqHdrSize, response,
+            respHdrSize, &certificate);
 
     respHdr->numReturnedLogEntries = numReturnedLogEntries;
     respHdr->certificate = certificate;
