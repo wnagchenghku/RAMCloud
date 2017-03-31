@@ -119,7 +119,7 @@ SideLog::commit()
 
     if (isRocksteady) {
         while(!replicaManager->proceedOnRocksteady()) {
-            Cycles::sleep(10);
+            Cycles::sleep(1000);
         }
     }
 

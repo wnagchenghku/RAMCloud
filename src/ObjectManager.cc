@@ -323,7 +323,8 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                 bool valueOnly)
 {
     objectMap.prefetchBucket(key.getHash());
-    HashTableBucketLock lock(*this, key);
+    Tub<HashTableBucketLock> lock;
+    lock.construct(*this, key);
 
     // Indicator for whether this read is on a tablet under migration by the
     // rocksteady protocol.
@@ -366,7 +367,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     LogEntryType type;
     uint64_t version;
     Log::Reference reference;
-    bool found = lookup(lock, key, type, buffer, &version, &reference);
+    bool found = lookup(*lock, key, type, buffer, &version, &reference);
     if (!found || type != LOG_ENTRY_TYPE_OBJ) {
         // Check if the key was marked as belonging to a tablet under migration
         // using rocksteady.
@@ -377,18 +378,90 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
             // Check the current state of the tablet the key belongs to.
             if (tabletExists && t.state ==
                     TabletManager::ROCKSTEADY_MIGRATING) {
+#if 0
                 // The tablet is still under migration. Ask the client to
                 // retry after some time.
                 throw RetryException(HERE, 1000, 2000,
                         "Tablet is currently under migration by Rocksteady!");
+#endif
+                // XXX If a safeVersion is being sent over to the source, make
+                // sure it is read before this lock is released.
+                lock.destroy();
+
+                Buffer requestedHashes;
+                Buffer response;
+
+                SegmentCertificate certificate;
+
+                requestedHashes.emplaceAppend<uint64_t>(key.getHash());
+
+                // First, send out a priority-hashes request to the source.
+                // XXX Assuming that the source is server 1.
+                // XXX The safeVersion sent over for now is 0. This needs to
+                // change once the priority hashes handler has been modified
+                // to return tombstones for objects that were not found on
+                // the source.
+                MasterClient::rocksteadyMigrationPriorityHashes(context,
+                        ServerId(1, 0), t.tableId, t.startKeyHash, t.endKeyHash,
+                        0, 1, &requestedHashes, &response, &certificate);
+
+                response.truncateFront(
+                        sizeof32(
+                        WireFormat::RocksteadyMigrationPriorityHashes::Response
+                        ));
+
+                const uint32_t bufferLength = response.size();
+                void* bufferMemory = response.getRange(0, bufferLength);
+
+                // Construct an iterator for the returned entry, and check
+                // the integrity of it's metadata.
+                SegmentIterator it(bufferMemory, bufferLength, certificate);
+                it.checkMetadataIntegrity();
+
+                const Object::Header* migratedObj =
+                        it.getContiguous<Object::Header>(NULL, 0);
+                Object priorityObj(migratedObj, it.getLength());
+
+                // Verify the object's checksum.
+                bool checksumIsValid = ({
+                    Object::computeChecksum(migratedObj, it.getLength()) ==
+                            migratedObj->checksum;
+                });
+
+                if (expect_false(!checksumIsValid)) {
+                    LOG(WARNING, "bad migrated object checksum! key: %s,"
+                            " tableId: %lu", key.toString().c_str(),
+                            t.tableId);
+                }
+
+                // Write the migrated object to the log.
+                // TODO What RejectRules should I send in here?
+                writeObject(priorityObj, NULL, NULL);
+
+                lock.construct(*this, key);
+                found = lookup(*lock, key, type, buffer, &version, &reference);
+                // Check to see if this lookup was successfull.
+                if (!found && type != LOG_ENTRY_TYPE_OBJ) {
+                    // This path will be taken if the object was not found
+                    // on the source.
+                    return STATUS_OBJECT_DOESNT_EXIST;
+                }
             } else if (tabletExists && t.state == TabletManager::NORMAL) {
                 // The tablet is not under migration anymore. Increment the
-                // read count on the key.
+                // read count on the key. Reaching here means that this key
+                // does not belong to the tablet that was migrated.
                 tabletManager->incrementReadCount(key);
-            }
-        }
 
-        return STATUS_OBJECT_DOESNT_EXIST;
+                // It is safe to return an error to the client here. Since
+                // the HashTableBucketLock was never released, this object
+                // could not have been inserted between the calls to found()
+                // getTablet().
+                return STATUS_OBJECT_DOESNT_EXIST;
+            }
+        } else {
+            // This is the normal case for when a lookup failed.
+            return STATUS_OBJECT_DOESNT_EXIST;
+        }
     }
 
     if (outVersion != NULL)
@@ -420,6 +493,8 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
     PerfStats::threadStats.readObjectBytes += valueLength;
     PerfStats::threadStats.readKeyBytes +=
             object.getKeysAndValueLength() - valueLength;
+
+    lock.destroy();
 
     return STATUS_OK;
 }
@@ -1253,7 +1328,7 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     }
     if (tablet.state != TabletManager::NORMAL) {
         if (tablet.state == TabletManager::LOCKED_FOR_MIGRATION)
-            throw RetryException(HERE, 1000, 2000,
+            throw RetryException(HERE, 50, 100,
                     "Tablet is currently locked for migration!");
 
         // If the tablet is being migrated by rocksteady, then allow writes to
@@ -3566,6 +3641,7 @@ ObjectManager::rocksteadyMigrationPriorityHashes(uint64_t tableId,
                     object.getPKHash() == *currentHash) {
                 numBytesInResponse += headerLength + entryLength;
                 numReturnedLogEntries++;
+                bufferCertificate.updateChecksum(type, entryLength);
             } else {
                 response->truncate(numBytesInResponse);
             }
