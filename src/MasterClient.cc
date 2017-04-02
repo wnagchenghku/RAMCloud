@@ -760,6 +760,31 @@ RemoveIndexEntryRpc::handleIndexDoesntExist()
     response->emplaceAppend<WireFormat::ResponseCommon>()->status = STATUS_OK;
 }
 
+void
+MasterClient::rocksteadyDropSourceTablet(Context* context,
+        ServerId sourceServerId, uint64_t tableId, uint64_t startKeyHash,
+        uint64_t endKeyHash)
+{
+    RocksteadyDropSourceTabletRpc rpc(context, sourceServerId, tableId,
+            startKeyHash, endKeyHash);
+    rpc.wait();
+}
+
+RocksteadyDropSourceTabletRpc::RocksteadyDropSourceTabletRpc(
+        Context* context, ServerId sourceServerId, uint64_t tableId,
+        uint64_t startKeyHash, uint64_t endKeyHash)
+    : ServerIdRpcWrapper(context, sourceServerId,
+            sizeof(WireFormat::RocksteadyDropSourceTablet::Response))
+{
+    WireFormat::RocksteadyDropSourceTablet::Request* reqHdr(
+            allocHeader<WireFormat::RocksteadyDropSourceTablet>(
+            sourceServerId));
+    reqHdr->tableId = tableId;
+    reqHdr->startKeyHash = startKeyHash;
+    reqHdr->endKeyHash = endKeyHash;
+    send();
+}
+
 uint32_t
 MasterClient::rocksteadyMigrationPriorityHashes(Context* context,
         ServerId sourceServerId, uint64_t tableId, uint64_t startKeyHash,

@@ -77,6 +77,9 @@ class MasterClient {
             uint64_t tableId, uint8_t indexId,
             const void* indexKey, KeyLength indexKeyLength,
             uint64_t primaryKeyHash);
+    static void rocksteadyDropSourceTablet(Context* context,
+            ServerId sourceServerId, uint64_t tableId,
+            uint64_t startKeyHash, uint64_t endKeyHash);
     static uint32_t rocksteadyMigrationPriorityHashes(Context* context,
             ServerId sourceServerId, uint64_t tableId,
             uint64_t startKeyHash, uint64_t endKeyHash,
@@ -284,6 +287,18 @@ class RemoveIndexEntryRpc : public IndexRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(RemoveIndexEntryRpc);
+};
+
+class RocksteadyDropSourceTabletRpc : public ServerIdRpcWrapper {
+  public:
+    RocksteadyDropSourceTabletRpc(Context* context,
+            ServerId sourceServerId, uint64_t tableId, uint64_t startKeyHash,
+            uint64_t endKeyHash);
+    ~RocksteadyDropSourceTabletRpc() {}
+    void wait() { waitAndCheckErrors(); }
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(RocksteadyDropSourceTabletRpc);
 };
 
 class RocksteadyMigrationPriorityHashesRpc : public ServerIdRpcWrapper {

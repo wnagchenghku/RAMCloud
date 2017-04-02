@@ -136,7 +136,8 @@ enum Opcode {
     ROCKSTEADY_SIDELOG_COMMIT = 84,
     ROCKSTEADY_TAKE_TABLET_OWNERSHIP = 85,
     ROCKSTEADY_MIGRATION_PRIORITY_HASHES = 86,
-    ILLEGAL_RPC_TYPE            = 87, // 1 + the highest legitimate Opcode
+    ROCKSTEADY_DROP_SOURCE_TABLET = 87,
+    ILLEGAL_RPC_TYPE            = 88, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1444,6 +1445,20 @@ struct RenewLease {
     struct Response {
         ResponseCommon common;
         ClientLease lease;
+    } __attribute__((packed));
+};
+
+struct RocksteadyDropSourceTablet {
+    static const Opcode opcode = ROCKSTEADY_DROP_SOURCE_TABLET;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommonWithId common;
+        uint64_t tableId;
+        uint64_t startKeyHash;
+        uint64_t endKeyHash;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
     } __attribute__((packed));
 };
 

@@ -219,6 +219,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::RemoveIndexEntry, MasterService,
                         &MasterService::removeIndexEntry>(rpc);
             break;
+        case WireFormat::RocksteadyDropSourceTablet::opcode:
+            callHandler<WireFormat::RocksteadyDropSourceTablet, MasterService,
+                        &MasterService::rocksteadyDropSourceTablet>(rpc);
+            break;
         case WireFormat::RocksteadyMigrationPriorityHashes::opcode:
             callHandler<WireFormat::RocksteadyMigrationPriorityHashes,
                         MasterService,
@@ -2066,6 +2070,54 @@ MasterService::requestRemoveIndexEntries(Object& object)
             rpcs[keyIndex-1]->wait();
         }
     }
+}
+
+void
+MasterService::rocksteadyDropSourceTablet(
+        const WireFormat::RocksteadyDropSourceTablet::Request* reqHdr,
+        WireFormat::RocksteadyDropSourceTablet::Response* respHdr,
+        Rpc* rpc)
+{
+    const uint64_t tableId = reqHdr->tableId;
+    const uint64_t startKeyHash = reqHdr->startKeyHash;
+    const uint64_t endKeyHash = reqHdr->endKeyHash;
+
+    TabletManager::Tablet sourceTablet;
+    bool found = tabletManager.getTablet(tableId, startKeyHash, endKeyHash,
+            &sourceTablet);
+
+    if (!found) {
+        LOG(NOTICE, "Received a rocksteady drop tablet request on a tablet"
+                " that does not exist on this master: tablet[0x%lx, 0x%lx],"
+                " tableId %lu", startKeyHash, endKeyHash, tableId);
+        respHdr->common.status = STATUS_UNKNOWN_TABLET;
+        return;
+    }
+
+    if (sourceTablet.state != TabletManager::LOCKED_FOR_MIGRATION) {
+        LOG(NOTICE, "Received a rocksteady drop tablet request on a tablet"
+                " that was not previously locked for migration: tablet[0x%lx,"
+                " 0x%lx], tableId %lu", startKeyHash, endKeyHash, tableId);
+        respHdr->common.status = STATUS_INTERNAL_ERROR;
+        return;
+    }
+
+    bool removed = tabletManager.deleteTablet(tableId, startKeyHash,
+            endKeyHash);
+
+    if (removed) {
+        TableStats::deleteKeyHashRange(&masterTableMetadata, tableId,
+                startKeyHash, endKeyHash);
+    }
+
+    objectManager.removeOrphanedObjects();
+
+    LOG(NOTICE, "Dropping tablet[0x%lx, 0x%lx], tableId %lu. Tablet was"
+            " migrated out using the rocksteady protocol.", startKeyHash,
+            endKeyHash, tableId);
+
+    respHdr->common.status = STATUS_OK;
+    return;
 }
 
 void

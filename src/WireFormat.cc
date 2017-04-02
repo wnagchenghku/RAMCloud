@@ -132,6 +132,8 @@ opcodeSymbol(uint32_t opcode)
                                     return "ROCKSTEADY_TAKE_TABLET_OWNERSHIP";
         case ROCKSTEADY_MIGRATION_PRIORITY_HASHES:
                                 return "ROCKSTEADY_MIGRATION_PRIORITY_HASHES";
+        case ROCKSTEADY_DROP_SOURCE_TABLET:
+                                    return "ROCKSTEADY_DROP_SOURCE_TABLET";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 

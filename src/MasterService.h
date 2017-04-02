@@ -261,6 +261,10 @@ class MasterService : public Service {
                 Rpc* rpc);
     void requestInsertIndexEntries(Object& object);
     void requestRemoveIndexEntries(Object& object);
+    void rocksteadyDropSourceTablet(
+                const WireFormat::RocksteadyDropSourceTablet::Request* reqHdr,
+                WireFormat::RocksteadyDropSourceTablet::Response* respHdr,
+                Rpc* rpc);
     void rocksteadyMigrationPriorityHashes(
                 const WireFormat::RocksteadyMigrationPriorityHashes::Request*
                 reqHdr,
