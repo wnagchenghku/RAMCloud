@@ -157,6 +157,7 @@ RocksteadyMigrationManager::startMigration(ServerId sourceServerId,
     RocksteadyMigration* newMigration = new RocksteadyMigration(context,
                                         this->localLocator, sourceServerId,
                                         tableId, startKeyHash, endKeyHash);
+    newMigration->migrationStartTS = Cycles::rdtsc();
 
     migrationsInProgress.push_back(newMigration);
 
@@ -193,6 +194,10 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , freeSideLogs()
     , nextSideLogCommit(0)
     , sideLogCommitRpc()
+    , migrationStartTS()
+    , migrationEndTS()
+    , sideLogCommitStartTS()
+    , sideLogCommitEndTS()
 {
     // Get a pointer to this master's tablet and object manager.
     tabletManager = &((context->getMasterService())->tabletManager);
@@ -492,9 +497,14 @@ RocksteadyMigration::pullAndReplay()
 
     // STEP-3: All partitions have completed pulling and replaying data.
     if (numCompletedPartitions == MAX_NUM_PARTITIONS) {
+        migrationEndTS = Cycles::rdtsc();
+        sideLogCommitStartTS = migrationEndTS;
+
         LOG(NOTICE, "Migration has completed on all partitions. Changing"
-                " state to SIDELOG_COMMIT (Tablet[0x%lx, 0x%lx] in table %lu).",
-                startKeyHash, endKeyHash, tableId);
+                " state to SIDELOG_COMMIT (Tablet[0x%lx, 0x%lx] in table %lu)."
+                " Moving data over took %0.4f seconds", startKeyHash,
+                endKeyHash, tableId, Cycles::toSeconds(migrationEndTS -
+                migrationStartTS));
 
         phase = SIDELOG_COMMIT;
         return workDone;
@@ -735,9 +745,13 @@ RocksteadyMigration::sideLogCommit()
         // Rule 3: If all sidelogs have been committed, change state to
         // TEAR_DOWN.
         else {
+            sideLogCommitEndTS = Cycles::rdtsc();
+
             LOG(NOTICE, "All sidelogs have been committed. Changing state"
-                " to TEAR_DOWN (Tablet[0x%lx, 0x%lx] in table %lu).",
-                startKeyHash, endKeyHash, tableId);
+                " to TEAR_DOWN (Tablet[0x%lx, 0x%lx] in table %lu)."
+                " SideLog commit took %0.4f seconds.", startKeyHash,
+                endKeyHash, tableId, Cycles::toSeconds(sideLogCommitStartTS -
+                sideLogCommitEndTS));
 
             phase = TEAR_DOWN;
         } // End of Rule 3.

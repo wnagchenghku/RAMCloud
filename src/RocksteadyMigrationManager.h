@@ -383,6 +383,14 @@ class RocksteadyMigration {
 
     Tub<RocksteadySideLogCommitRpc> sideLogCommitRpc;
 
+    uint64_t migrationStartTS;
+
+    uint64_t migrationEndTS;
+
+    uint64_t sideLogCommitStartTS;
+
+    uint64_t sideLogCommitEndTS;
+
     friend class RocksteadyMigrationManager;
     DISALLOW_COPY_AND_ASSIGN(RocksteadyMigration);
 };
