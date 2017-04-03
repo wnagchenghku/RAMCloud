@@ -54,7 +54,12 @@ class RocksteadyMigration {
 
   PRIVATE:
     int prepare();
-    int pullAndReplay();
+    int pullAndReplay_main();
+    int pullAndReplay_reapPullRpcs();
+    int pullAndReplay_reapReplayRpcs();
+    int pullAndReplay_sendPullRpcs();
+    int pullAndReplay_sendReplayRpcs();
+    void pullAndReplay_checkEfficiency();
     int sideLogCommit();
     int tearDown();
 

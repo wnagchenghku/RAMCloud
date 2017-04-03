@@ -1,5 +1,6 @@
 #include <new>
 
+#include "Util.h"
 #include "OptionParser.h"
 #include "WorkerManager.h"
 #include "MasterService.h"
@@ -245,7 +246,7 @@ RocksteadyMigration::poll()
     switch(phase) {
         case SETUP : return prepare();
 
-        case MIGRATING_DATA : return pullAndReplay();
+        case MIGRATING_DATA : return pullAndReplay_main();
 
         case SIDELOG_COMMIT : return sideLogCommit();
 
@@ -354,13 +355,56 @@ RocksteadyMigration::prepare()
     }
 }
 
-// TODO: Break this up into multiple inlined functions.
 int
-RocksteadyMigration::pullAndReplay()
+RocksteadyMigration::pullAndReplay_main()
 {
     int workDone = 0;
 
     // STEP-1: Check if any of the in-progress pulls have completed.
+    workDone += pullAndReplay_reapPullRpcs();
+    // End of STEP-1.
+
+    // STEP-2: Check if any in-progress replays have completed.
+    workDone += pullAndReplay_reapReplayRpcs();
+    // End of STEP-2.
+
+    // STEP-3: All partitions have completed pulling and replaying data.
+    if (numCompletedPartitions == MAX_NUM_PARTITIONS) {
+        migrationEndTS = Cycles::rdtsc();
+        sideLogCommitStartTS = migrationEndTS;
+
+        LOG(NOTICE, "Migration has completed on all partitions. Changing"
+                " state to SIDELOG_COMMIT (Tablet[0x%lx, 0x%lx] in table %lu)."
+                " Moving data over took %0.4f seconds", startKeyHash,
+                endKeyHash, tableId, Cycles::toSeconds(migrationEndTS -
+                migrationStartTS));
+
+        // TODO I might need to change tablet state here rather than after
+        // sidelog commit. What if a priority hashes request is sent out
+        // after migration but before sidelog commit?
+
+        phase = SIDELOG_COMMIT;
+        return workDone;
+    } // End of STEP-3.
+
+    // STEP-4: Issue a new batch of pulls if possible.
+    workDone += pullAndReplay_sendPullRpcs();
+    // End of STEP-4.
+
+    // STEP-5: Issue a new batch of replays if possible.
+    workDone += pullAndReplay_sendReplayRpcs();
+    // End of STEP-5.
+
+    pullAndReplay_checkEfficiency();
+
+    return workDone == 0 ? 0 : 1;
+}
+
+int
+RocksteadyMigration::pullAndReplay_reapPullRpcs()
+{
+    int workDone = 0;
+
     size_t numBusyPullRpcs = busyPullRpcs.size();
     for (size_t i = 0; i < numBusyPullRpcs; i++) {
         Tub<RocksteadyPullRpc>* pullRpc = busyPullRpcs.front();
@@ -435,9 +479,16 @@ RocksteadyMigration::pullAndReplay()
         }
 
         busyPullRpcs.pop_front();
-    } // End of STEP-1.
+    }
 
-    // STEP-2: Check if any in-progress replays have completed.
+    return workDone;
+}
+
+int
+RocksteadyMigration::pullAndReplay_reapReplayRpcs()
+{
+    int workDone = 0;
+
     size_t numBusyReplayRpcs = busyReplayRpcs.size();
     for (size_t i = 0; i < numBusyReplayRpcs; i++) {
         Tub<RocksteadyReplayRpc>* replayRpc = busyReplayRpcs.front();
@@ -495,28 +546,16 @@ RocksteadyMigration::pullAndReplay()
         }
 
         busyReplayRpcs.pop_front();
-    } // End of STEP-2.
+    }
 
-    // STEP-3: All partitions have completed pulling and replaying data.
-    if (numCompletedPartitions == MAX_NUM_PARTITIONS) {
-        migrationEndTS = Cycles::rdtsc();
-        sideLogCommitStartTS = migrationEndTS;
+    return workDone;
+}
 
-        LOG(NOTICE, "Migration has completed on all partitions. Changing"
-                " state to SIDELOG_COMMIT (Tablet[0x%lx, 0x%lx] in table %lu)."
-                " Moving data over took %0.4f seconds", startKeyHash,
-                endKeyHash, tableId, Cycles::toSeconds(migrationEndTS -
-                migrationStartTS));
+int
+RocksteadyMigration::pullAndReplay_sendPullRpcs()
+{
+    int workDone = 0;
 
-        // TODO I might need to change tablet state here rather than after
-        // sidelog commit. What if a priority hashes request is sent out
-        // after migration but before sidelog commit?
-
-        phase = SIDELOG_COMMIT;
-        return workDone;
-    } // End of STEP-3.
-
-    // STEP-4: Issue a new batch of pulls if possible.
     if (freePullRpcs.size() != 0 ) {
         // Identify the set of partitions on which a pull rpc can be
         // issued.
@@ -583,9 +622,16 @@ RocksteadyMigration::pullAndReplay()
 
             workDone++;
         }
-    } // End of STEP-4.
+    }
 
-    // STEP-5: Issue a new batch of replays if possible.
+    return workDone;
+}
+
+int
+RocksteadyMigration::pullAndReplay_sendReplayRpcs()
+{
+    int workDone = 0;
+
     if (freeReplayRpcs.size() != 0) {
         // Identify the set of partitions eligible for a replay.
         std::deque<Tub<RocksteadyHashPartition>*> candidatePartitions;
@@ -671,8 +717,14 @@ RocksteadyMigration::pullAndReplay()
 
             workDone++;
         }
-    } // End of STEP-5.
+    }
 
+    return workDone;
+}
+
+void
+RocksteadyMigration::pullAndReplay_checkEfficiency()
+{
 #ifdef ROCKSTEADY_CHECK_WORK_CONSERVING
     size_t numIdleWorkers = context->workerManager->testingNumIdleWorkers();
     if (numIdleWorkers > 0) {
@@ -698,11 +750,11 @@ RocksteadyMigration::pullAndReplay()
 
 #ifdef ROCKSTEADY_RPC_UTILIZATION
     if (freeReplayRpcs.size() != 0) {
-        LOG(NOTICE, "There are %zd free replay rpcs", freeReplayRpcs.size());
+        LOG(WARNING, "There are %zd free replay rpcs", freeReplayRpcs.size());
     }
 
     if (freePullRpcs.size() != 0) {
-        LOG(NOTICE, "There are %zd free pull rpcs", freePullRpcs.size());
+        LOG(WARNING, "There are %zd free pull rpcs", freePullRpcs.size());
     }
 
     if (freeReplayRpcs.size() != freeSideLogs.size()) {
@@ -710,8 +762,6 @@ RocksteadyMigration::pullAndReplay()
                 " number of free sidelogs. Bug?");
     }
 #endif
-
-    return workDone == 0 ? 0 : 1;
 }
 
 int
