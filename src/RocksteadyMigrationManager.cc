@@ -192,6 +192,8 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , busyReplayRpcs()
     , sideLogs()
     , freeSideLogs()
+    , droppedSourceTablet(false)
+    , dropSourceTabletRpc()
     , nextSideLogCommit(0)
     , sideLogCommitRpc()
     , migrationStartTS()
@@ -506,6 +508,10 @@ RocksteadyMigration::pullAndReplay()
                 endKeyHash, tableId, Cycles::toSeconds(migrationEndTS -
                 migrationStartTS));
 
+        // TODO I might need to change tablet state here rather than after
+        // sidelog commit. What if a priority hashes request is sent out
+        // after migration but before sidelog commit?
+
         phase = SIDELOG_COMMIT;
         return workDone;
     } // End of STEP-3.
@@ -713,12 +719,38 @@ RocksteadyMigration::sideLogCommit()
 {
     int workDone = 0;
 
-    // Rule 1: If a sidelog commit is in progress, check to see if it has
+    // Rule 1: Make progress on dropping the source's copy of the tablet.
+    if (!droppedSourceTablet) {
+        if (dropSourceTabletRpc) {
+            // The drop source tablet request was issued to the source.
+            // Check if it has completed.
+            if (dropSourceTabletRpc->isReady()) {
+                dropSourceTabletRpc->wait();
+                droppedSourceTablet = true;
+
+                LOG(ll, "Source has dropped tablet[0x%lx, 0x%lx] in table"
+                        " %lu.", startKeyHash, endKeyHash, tableId);
+
+                workDone++;
+            }
+        } else {
+            // Request that the source drop it's copy of the tablet.
+            dropSourceTabletRpc.construct(context, sourceServerId, tableId,
+                    startKeyHash, endKeyHash);
+
+            LOG(ll, "Requested source to drop tablet[0x%lx, 0x%lx] in"
+                    " table %lu.", startKeyHash, endKeyHash, tableId);
+
+            workDone++;
+        }
+    } // End of Rule 1.
+
+    // Rule 2: If a sidelog commit is in progress, check to see if it has
     // completed.
     if (sideLogCommitRpc) {
         if (sideLogCommitRpc->isReady()) {
             LOG(ll, "Completed commit on sidelog %u (Tablet[0x%lx, 0x%lx]"
-                    " in table %lu", nextSideLogCommit, startKeyHash,
+                    " in table %lu)", nextSideLogCommit, startKeyHash,
                     endKeyHash, tableId);
 
             sideLogCommitRpc.destroy();
@@ -727,10 +759,10 @@ RocksteadyMigration::sideLogCommit()
         } else {
             return workDone;
         }
-    } // End of Rule 1.
+    } // End of Rule 2.
 
     if (!sideLogCommitRpc) {
-        // Rule 2: If there is another sidelog to commit, issue the operation
+        // Rule 3: If there is another sidelog to commit, issue the operation
         // to do so.
         if (nextSideLogCommit < MAX_PARALLEL_REPLAY_RPCS) {
             sideLogCommitRpc.construct(&(sideLogs[nextSideLogCommit]),
@@ -738,11 +770,11 @@ RocksteadyMigration::sideLogCommit()
             context->workerManager->handleRpc(sideLogCommitRpc.get());
 
             LOG(ll, "Issued commit on sidelog %u (Tablet[0x%lx, 0x%lx]"
-                    " in table %lu", nextSideLogCommit, startKeyHash,
+                    " in table %lu)", nextSideLogCommit, startKeyHash,
                     endKeyHash, tableId);
-        } // End of Rule 2.
+        } // End of Rule 3.
 
-        // Rule 3: If all sidelogs have been committed, change state to
+        // Rule 4: If all sidelogs have been committed, change state to
         // TEAR_DOWN.
         else {
             sideLogCommitEndTS = Cycles::rdtsc();
@@ -754,7 +786,7 @@ RocksteadyMigration::sideLogCommit()
                 sideLogCommitEndTS));
 
             phase = TEAR_DOWN;
-        } // End of Rule 3.
+        } // End of Rule 4.
     }
 
     return workDone;
@@ -765,14 +797,10 @@ RocksteadyMigration::tearDown()
 {
     int workDone = 0;
 
-    // TODO: The completion and drop-dependency rpc can be issued together.
-
-    // TODO: Add code to issue a completion rpc to the source here.
-
     // TODO: Add code to issue a drop-dependency rpc to the coordinator here.
 
     // TODO: Make sure this change in state takes place only once, and only
-    // after the completion and drop-dependency rpcs have returned.
+    // after the drop-dependency rpc has returned.
     tabletManager->changeState(tableId, startKeyHash, endKeyHash,
             TabletManager::ROCKSTEADY_MIGRATING, TabletManager::NORMAL);
 

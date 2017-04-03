@@ -379,6 +379,10 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadySideLogCommitRpc);
     };
 
+    bool droppedSourceTablet;
+
+    Tub<RocksteadyDropSourceTabletRpc> dropSourceTabletRpc;
+
     uint32_t nextSideLogCommit;
 
     Tub<RocksteadySideLogCommitRpc> sideLogCommitRpc;
