@@ -4296,6 +4296,13 @@ doWorkload(OpType type)
 
     sendCommand("run", "running", 1, numClients-1);
 
+    // Split the "data" table if required.
+    if (migratePercentage > 0 && migratePercentage < 100) {
+        uint64_t endKeyHash = ~0UL;
+        endKeyHash = endKeyHash / 100 * migratePercentage;
+        cluster->splitTablet("data", endKeyHash + 1);
+    }
+
     const uint16_t keyLen = 30;
     char key[keyLen];
     Buffer readBuf;
