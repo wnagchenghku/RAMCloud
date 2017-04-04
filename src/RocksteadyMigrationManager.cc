@@ -379,9 +379,11 @@ RocksteadyMigration::pullAndReplay_main()
                 endKeyHash, tableId, Cycles::toSeconds(migrationEndTS -
                 migrationStartTS));
 
-        // TODO I might need to change tablet state here rather than after
-        // sidelog commit. What if a priority hashes request is sent out
-        // after migration but before sidelog commit?
+        // Need to change tablet state here rather than after sidelog commit.
+        // What if a priority hashes request is sent out after migration but
+        // before sidelog commit?
+        tabletManager->changeState(tableId, startKeyHash, endKeyHash,
+                TabletManager::ROCKSTEADY_MIGRATING, TabletManager::NORMAL);
 
         phase = SIDELOG_COMMIT;
         return workDone;
@@ -400,7 +402,7 @@ RocksteadyMigration::pullAndReplay_main()
     return workDone == 0 ? 0 : 1;
 }
 
-int
+__inline __attribute__((always_inline)) int
 RocksteadyMigration::pullAndReplay_reapPullRpcs()
 {
     int workDone = 0;
@@ -484,7 +486,7 @@ RocksteadyMigration::pullAndReplay_reapPullRpcs()
     return workDone;
 }
 
-int
+__inline __attribute__((always_inline)) int
 RocksteadyMigration::pullAndReplay_reapReplayRpcs()
 {
     int workDone = 0;
@@ -551,7 +553,7 @@ RocksteadyMigration::pullAndReplay_reapReplayRpcs()
     return workDone;
 }
 
-int
+__inline __attribute__((always_inline)) int
 RocksteadyMigration::pullAndReplay_sendPullRpcs()
 {
     int workDone = 0;
@@ -627,7 +629,7 @@ RocksteadyMigration::pullAndReplay_sendPullRpcs()
     return workDone;
 }
 
-int
+__inline __attribute__((always_inline)) int
 RocksteadyMigration::pullAndReplay_sendReplayRpcs()
 {
     int workDone = 0;
@@ -722,7 +724,7 @@ RocksteadyMigration::pullAndReplay_sendReplayRpcs()
     return workDone;
 }
 
-void
+__inline __attribute__((always_inline)) void
 RocksteadyMigration::pullAndReplay_checkEfficiency()
 {
 #ifdef ROCKSTEADY_CHECK_WORK_CONSERVING
@@ -848,11 +850,6 @@ RocksteadyMigration::tearDown()
     int workDone = 0;
 
     // TODO: Add code to issue a drop-dependency rpc to the coordinator here.
-
-    // TODO: Make sure this change in state takes place only once, and only
-    // after the drop-dependency rpc has returned.
-    tabletManager->changeState(tableId, startKeyHash, endKeyHash,
-            TabletManager::ROCKSTEADY_MIGRATING, TabletManager::NORMAL);
 
     phase = COMPLETED;
     workDone++;
