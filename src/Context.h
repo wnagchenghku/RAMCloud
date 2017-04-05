@@ -107,6 +107,13 @@ class Context {
     // be freed when the Context is destroyed.
     WorkerManager* workerManager;
 
+    // A pointer to the migration manager. The manager uses the rocksteady
+    // protocol.
+    // This variable allows worker threads to interface with the manager to:
+    // - initiate a migration.
+    // - request that a particular key's migration be prioritized.
+    RocksteadyMigrationManager* rocksteadyMigrationManager;
+
     // The following array is indexed by WireFormat::ServiceType, and
     // holds pointers to all of the services currently known in this
     // context.  NULL means "no such service". Services register themselves
@@ -138,8 +145,6 @@ class Context {
     // NULL except on coordinators. Owned elsewhere;
     // not freed by this class.
     MasterRecoveryManager* recoveryManager;
-
-    RocksteadyMigrationManager* rocksteadyMigrationManager;
 
     /**
      * Returns the BackupService associated with this context, if
