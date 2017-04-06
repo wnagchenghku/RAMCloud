@@ -33,6 +33,7 @@
 #include "UnackedRpcResults.h"
 #include "WallTime.h"
 #include "MasterService.h"
+#include "RocksteadyMigrationManager.h"
 
 namespace RAMCloud {
 
@@ -378,12 +379,18 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
             // Check the current state of the tablet the key belongs to.
             if (tabletExists && t.state ==
                     TabletManager::ROCKSTEADY_MIGRATING) {
-#if 0
-                // The tablet is still under migration. Ask the client to
-                // retry after some time.
+                // The tablet is still under migration. Request for a priority
+                // migration and ask the client to retry after some time.
+                {
+                    Dispatch::Lock(context->dispatch);
+                    context->rocksteadyMigrationManager->requestPriorityHash(
+                            t.tableId, t.startKeyHash, t.endKeyHash,
+                            key.getHash());
+                }
+
                 throw RetryException(HERE, 1000, 2000,
                         "Tablet is currently under migration by Rocksteady!");
-#endif
+#if 0
                 // XXX If a safeVersion is being sent over to the source, make
                 // sure it is read before this lock is released.
                 lock.destroy();
@@ -446,6 +453,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                     // on the source.
                     return STATUS_OBJECT_DOESNT_EXIST;
                 }
+#endif
             } else if (tabletExists && t.state == TabletManager::NORMAL) {
                 // The tablet is not under migration anymore. Increment the
                 // read count on the key. Reaching here means that this key
@@ -456,6 +464,8 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                 // the HashTableBucketLock was never released, this object
                 // could not have been inserted between the calls to found()
                 // getTablet().
+                return STATUS_OBJECT_DOESNT_EXIST;
+            } else {
                 return STATUS_OBJECT_DOESNT_EXIST;
             }
         } else {

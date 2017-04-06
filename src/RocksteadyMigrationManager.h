@@ -25,7 +25,9 @@ class RocksteadyMigrationManager : Dispatch::Poller {
 
     int poll();
     bool startMigration(ServerId sourceServerId, uint64_t tableId,
-                uint64_t startKeyHash, uint64_t endKeyHash);
+            uint64_t startKeyHash, uint64_t endKeyHash);
+    bool requestPriorityHash(uint64_t tableId, uint64_t startKeyHash,
+            uint64_t endKeyHash, uint64_t priorityHash);
 
   PRIVATE:
     // Shared RAMCloud information.
@@ -51,10 +53,12 @@ class RocksteadyMigration {
     ~RocksteadyMigration();
 
     int poll();
+    bool addPriorityHash(uint64_t priorityHash);
 
   PRIVATE:
     int prepare();
     int pullAndReplay_main();
+    int pullAndReplay_priorityHashes();
     int pullAndReplay_reapPullRpcs();
     int pullAndReplay_reapReplayRpcs();
     int pullAndReplay_sendPullRpcs();
@@ -157,6 +161,20 @@ class RocksteadyMigration {
     Tub<RocksteadyGetHeadOfLog> getHeadOfLogRpc;
 
     Tub<RocksteadyTakeTabletOwnershipRpc> takeOwnershipRpc;
+
+    static const uint32_t MAX_PRIORITY_HASHES = 16;
+
+    std::vector<uint64_t> waitingPriorityHashes;
+
+    std::vector<uint64_t> inProgressPriorityHashes;
+
+    Tub<Buffer> priorityHashesRequestBuffer;
+
+    Tub<Buffer> priorityHashesResponseBuffer;
+
+    Tub<RocksteadyMigrationPriorityHashesRpc> priorityPullRpc;
+
+    Tub<SideLog> priorityHashesSideLog;
 
     static const uint32_t PARTITION_PIPELINE_DEPTH = 8;
 
@@ -322,6 +340,8 @@ class RocksteadyMigration {
         friend class RocksteadyMigration;
         DISALLOW_COPY_AND_ASSIGN(RocksteadyReplayRpc);
     };
+
+    Tub<RocksteadyReplayRpc> priorityReplayRpc;
 
     Tub<RocksteadyReplayRpc> replayRpcs[MAX_PARALLEL_REPLAY_RPCS];
 

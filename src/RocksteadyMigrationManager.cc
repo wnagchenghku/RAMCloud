@@ -165,6 +165,25 @@ RocksteadyMigrationManager::startMigration(ServerId sourceServerId,
     return true;
 }
 
+bool
+RocksteadyMigrationManager::requestPriorityHash(uint64_t tableId,
+                            uint64_t startKeyHash, uint64_t endKeyHash,
+                            uint64_t priorityHash)
+{
+    // Add the priority hash to the appropriate migration.
+    for (auto& migration : migrationsInProgress) {
+        if (migration->tableId == tableId &&
+                migration->startKeyHash == startKeyHash &&
+                migration->endKeyHash == endKeyHash) {
+            return migration->addPriorityHash(priorityHash);
+        }
+    }
+
+    // Something went seriously wrong if we were not able to find the
+    // migration at the manager.
+    DIE("Received a priority hash for a tablet that is not under migration!");
+}
+
 RocksteadyMigration::RocksteadyMigration(Context* context,
                         string localLocator, ServerId sourceServerId,
                         uint64_t tableId, uint64_t startKeyHash,
@@ -183,11 +202,18 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , prepareSourceRpc()
     , getHeadOfLogRpc()
     , takeOwnershipRpc()
+    , waitingPriorityHashes()
+    , inProgressPriorityHashes()
+    , priorityHashesRequestBuffer()
+    , priorityHashesResponseBuffer()
+    , priorityPullRpc()
+    , priorityHashesSideLog()
     , partitions()
     , numCompletedPartitions(0)
     , pullRpcs()
     , freePullRpcs()
     , busyPullRpcs()
+    , priorityReplayRpc()
     , replayRpcs()
     , freeReplayRpcs()
     , busyReplayRpcs()
@@ -206,6 +232,10 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     tabletManager = &((context->getMasterService())->tabletManager);
     objectManager = &((context->getMasterService())->objectManager);
 
+    // Reserve space for the priority hashes.
+    waitingPriorityHashes.resize(MAX_PRIORITY_HASHES);
+    inProgressPriorityHashes.resize(MAX_PRIORITY_HASHES);
+
     // To begin with, all pull rpcs are free.
     for (uint32_t i = 0; i < MAX_PARALLEL_PULL_RPCS; i++) {
         freePullRpcs.push_back(&(pullRpcs[i]));
@@ -217,6 +247,13 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     }
 
     // Construct all the sidelogs.
+#ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
+    priorityHashesSideLog.construct(objectManager->getLog());
+#else
+    priorityHashesSideLog.construct(objectManager->getLog(),
+            context->rocksteadyMigrationManager);
+#endif
+
     for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
 #ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
         sideLogs[i].construct(objectManager->getLog());
@@ -256,6 +293,43 @@ RocksteadyMigration::poll()
 
         default : return 0;
     }
+}
+
+bool
+RocksteadyMigration::addPriorityHash(uint64_t priorityHash)
+{
+    // First, check if this hash is already part of an in progress priority
+    // request. If this is the case, return immediately as this hash should
+    // become available to clients shortly.
+    if (std::binary_search(inProgressPriorityHashes.begin(),
+            inProgressPriorityHashes.end(), priorityHash)) {
+        return true;
+    }
+
+    // If the priority hash was not part of an in progress priority request,
+    // find the position in waitingPriorityHashes at which the hash should
+    // be inserted.
+    auto candidateHash = std::lower_bound(waitingPriorityHashes.begin(),
+            waitingPriorityHashes.end(), priorityHash);
+
+    // Check if the priority hash is already present in waitingPriorityHashes.
+    // If present, return immediately as this hash will anyway be sent out on
+    // the next priority request.
+    if (*candidateHash == priorityHash) {
+        return true;
+    }
+
+    // Check if the number of buffered priority hashes is lesser than the
+    // threshold. If not, return immediately.
+    if (waitingPriorityHashes.size() > MAX_PRIORITY_HASHES) {
+        return false;
+    }
+
+    // Add the priority hash to the list of buffered priority hashes. These
+    // hashes will be sent out on the next priority request.
+    waitingPriorityHashes.insert(candidateHash, priorityHash);
+
+    return true;
 }
 
 int
@@ -360,6 +434,8 @@ RocksteadyMigration::pullAndReplay_main()
 {
     int workDone = 0;
 
+    workDone += pullAndReplay_priorityHashes();
+
     // STEP-1: Check if any of the in-progress pulls have completed.
     workDone += pullAndReplay_reapPullRpcs();
     // End of STEP-1.
@@ -400,6 +476,86 @@ RocksteadyMigration::pullAndReplay_main()
     pullAndReplay_checkEfficiency();
 
     return workDone == 0 ? 0 : 1;
+}
+
+__inline __attribute__((always_inline)) int
+RocksteadyMigration::pullAndReplay_priorityHashes()
+{
+    int workDone = 0;
+
+    // If a priority request is in progress, check if it has completed.
+    if (priorityPullRpc) {
+        if (priorityPullRpc->isReady()) {
+            SegmentCertificate certificate;
+            priorityPullRpc->wait(&certificate);
+
+            priorityHashesRequestBuffer->truncateFront(sizeof32(
+                    WireFormat::RocksteadyMigrationPriorityHashes::Response));
+
+            // Issue a replay request to the worker manager.
+            priorityReplayRpc.construct(&(partitions[0]) /* Required for
+                                                            compilation */,
+                    &priorityHashesRequestBuffer, &priorityHashesSideLog,
+                    localLocator, certificate);
+            context->workerManager->handleRpc(priorityReplayRpc.get());
+
+            priorityPullRpc.destroy();
+            workDone++;
+        }
+
+        // Return irrespective of whether the priority hashes request completed
+        // or not. If it did not complete, the next call to this migration's
+        // poll() method will enter this code path again. If it completed, the
+        // next call to this migration's poll() method will poll the issued
+        // replay rpc for completion.
+        return workDone;
+    }
+
+    // If a replay request is in progress, check if it has completed.
+    if (priorityReplayRpc) {
+        if (priorityReplayRpc->isReady()) {
+            // If the replay completed, clear out inProgressPriorityHashes.
+            inProgressPriorityHashes.erase(inProgressPriorityHashes.begin(),
+                    inProgressPriorityHashes.end());
+            priorityReplayRpc.destroy();
+            workDone++;
+        } else {
+            return workDone;
+        }
+    }
+
+    // Issue a priority hashes request. This code is reached only if:
+    // - if there are no priority pulls or replays in progress.
+    // - if a replay rpc completed.
+    if (waitingPriorityHashes.size() > 0) {
+        // Move all the priority hashes from the waiting list to the
+        // in progress list, and clear out the waiting list.
+        copy(waitingPriorityHashes.begin(), waitingPriorityHashes.end(),
+                inProgressPriorityHashes.end());
+        waitingPriorityHashes.erase(waitingPriorityHashes.begin(),
+                waitingPriorityHashes.end());
+
+        priorityHashesRequestBuffer.construct();
+        priorityHashesResponseBuffer.construct();
+
+        // Create the request buffer for the priority rpc.
+        uint64_t numRequestedHashes = 0;
+        for (auto it = inProgressPriorityHashes.begin();
+                it != inProgressPriorityHashes.end(); it++) {
+            priorityHashesRequestBuffer->emplaceAppend<uint64_t>(*it);
+            numRequestedHashes++;
+        }
+
+        // Issue the priority rpc.
+        priorityPullRpc.construct(context, sourceServerId, tableId,
+                startKeyHash, endKeyHash, *sourceSafeVersion,
+                numRequestedHashes, priorityHashesRequestBuffer.get(),
+                priorityHashesResponseBuffer.get());
+
+        workDone++;
+    }
+
+    return workDone;
 }
 
 __inline __attribute__((always_inline)) int

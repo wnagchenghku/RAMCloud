@@ -85,12 +85,12 @@ Context::Context(bool hasDedicatedDispatchThread,
     , objectFinder(NULL)
     , options(options)
     , workerManager(NULL)
+    , rocksteadyMigrationManager(NULL)
     , externalStorage(NULL)
     , serverList(NULL)
     , coordinatorServerList(NULL)
     , tableManager(NULL)
     , recoveryManager(NULL)
-    , rocksteadyMigrationManager(NULL)
 {
     try {
         Cycles::init();
