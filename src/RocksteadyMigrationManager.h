@@ -174,6 +174,8 @@ class RocksteadyMigration {
 
     Tub<RocksteadyMigrationPriorityHashesRpc> priorityPullRpc;
 
+    bool priorityHashesSideLogCommitted;
+
     Tub<SideLog> priorityHashesSideLog;
 
     static const uint32_t PARTITION_PIPELINE_DEPTH = 8;

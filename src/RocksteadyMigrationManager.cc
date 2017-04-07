@@ -207,6 +207,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , priorityHashesRequestBuffer()
     , priorityHashesResponseBuffer()
     , priorityPullRpc()
+    , priorityHashesSideLogCommitted(false)
     , priorityHashesSideLog()
     , partitions()
     , numCompletedPartitions(0)
@@ -434,8 +435,6 @@ RocksteadyMigration::pullAndReplay_main()
 {
     int workDone = 0;
 
-    workDone += pullAndReplay_priorityHashes();
-
     // STEP-1: Check if any of the in-progress pulls have completed.
     workDone += pullAndReplay_reapPullRpcs();
     // End of STEP-1.
@@ -464,6 +463,8 @@ RocksteadyMigration::pullAndReplay_main()
         phase = SIDELOG_COMMIT;
         return workDone;
     } // End of STEP-3.
+
+    workDone += pullAndReplay_priorityHashes();
 
     // STEP-4: Issue a new batch of pulls if possible.
     workDone += pullAndReplay_sendPullRpcs();
@@ -965,7 +966,9 @@ RocksteadyMigration::sideLogCommit()
                     endKeyHash, tableId);
 
             sideLogCommitRpc.destroy();
-            nextSideLogCommit++;
+            nextSideLogCommit < MAX_PARALLEL_REPLAY_RPCS ?
+                    nextSideLogCommit++ :
+                    priorityHashesSideLogCommitted = true;
             workDone++;
         } else {
             return workDone;
@@ -985,7 +988,19 @@ RocksteadyMigration::sideLogCommit()
                     endKeyHash, tableId);
         } // End of Rule 3.
 
-        // Rule 4: If all sidelogs have been committed, change state to
+        // Rule 4: If all regular sidelogs have committed, issue a commit on
+        // the sidelog that was used for the priority hashes.
+        else if (!priorityHashesSideLogCommitted) {
+            sideLogCommitRpc.construct(&priorityHashesSideLog,
+                    localLocator);
+            context->workerManager->handleRpc(sideLogCommitRpc.get());
+
+            LOG(ll, "Issued commit on the priority-hashes-sidelog"
+                    " (Tablet[0x%lx, 0x%lx] in table %lu)", startKeyHash,
+                    endKeyHash, tableId);
+        } // End of Rule 4.
+
+        // Rule 5: If all sidelogs have been committed, change state to
         // TEAR_DOWN.
         else {
             sideLogCommitEndTS = Cycles::rdtsc();
@@ -997,7 +1012,7 @@ RocksteadyMigration::sideLogCommit()
                 sideLogCommitStartTS));
 
             phase = TEAR_DOWN;
-        } // End of Rule 4.
+        } // End of Rule 5.
     }
 
     return workDone;
