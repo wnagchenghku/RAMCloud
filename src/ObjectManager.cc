@@ -379,6 +379,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
             // Check the current state of the tablet the key belongs to.
             if (tabletExists && t.state ==
                     TabletManager::ROCKSTEADY_MIGRATING) {
+#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
                 // The tablet is still under migration. Request for a priority
                 // migration and ask the client to retry after some time.
                 {
@@ -388,9 +389,9 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                             key.getHash());
                 }
 
-                throw RetryException(HERE, 1000, 2000,
+                throw RetryException(HERE, 100, 200,
                         "Tablet is currently under migration by Rocksteady!");
-#if 0
+#else
                 // XXX If a safeVersion is being sent over to the source, make
                 // sure it is read before this lock is released.
                 lock.destroy();
@@ -453,7 +454,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                     // on the source.
                     return STATUS_OBJECT_DOESNT_EXIST;
                 }
-#endif
+#endif // ROCKSTEADY_SYNC_PRIORITY_HASHES
             } else if (tabletExists && t.state == TabletManager::NORMAL) {
                 // The tablet is not under migration anymore. Increment the
                 // read count on the key. Reaching here means that this key

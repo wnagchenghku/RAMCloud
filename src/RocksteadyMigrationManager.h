@@ -13,6 +13,24 @@
 #include "TabletManager.h"
 #include "CoordinatorClient.h"
 
+// Uncomment to disable replay of migrated data. Useful for benchmarking
+// RocksteadyMigrationPullHashesRpc() throughput.
+// #define ROCKSTEADY_NO_REPLAY
+
+// Uncomment to enable a check for whether the migration manager is work
+// conserving at the target machine.
+// #define ROCKSTEADY_CHECK_WORK_CONSERVING
+
+// #define ROCKSTEADY_RPC_UTILIZATION
+
+// Uncomment to prevent migrated segments from using a seperate task queue
+// for (re-)replication.
+// #define ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
+
+// Uncomment to enable synchronous priority-hash requests on the read path.
+// This will also disable batched priority pulls at the migration manager.
+// #define ROCKSTEADY_SYNC_PRIORITY_HASHES
+
 namespace RAMCloud {
 
 // Forward declaration.

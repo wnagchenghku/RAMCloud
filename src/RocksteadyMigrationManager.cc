@@ -6,20 +6,6 @@
 #include "MasterService.h"
 #include "RocksteadyMigrationManager.h"
 
-// Uncomment to disable replay of migrated data. Useful for benchmarking
-// RocksteadyMigrationPullHashesRpc() throughput.
-// #define ROCKSTEADY_NO_REPLAY
-
-// Uncomment to enable a check for whether the migration manager is work
-// conserving at the target machine.
-// #define ROCKSTEADY_CHECK_WORK_CONSERVING
-
-// #define ROCKSTEADY_RPC_UTILIZATION
-
-// Uncomment to prevent migrated segments from using a seperate task queue
-// for (re-)replication.
-// #define ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
-
 namespace RAMCloud {
 
 /**
@@ -247,13 +233,15 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
         freeReplayRpcs.push_back(&(replayRpcs[i]));
     }
 
+#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
     // Construct all the sidelogs.
 #ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
     priorityHashesSideLog.construct(objectManager->getLog());
 #else
     priorityHashesSideLog.construct(objectManager->getLog(),
             context->rocksteadyMigrationManager);
-#endif
+#endif // ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
+#endif // ROCKSTEADY_SYNC_PRIORITY_HASHES
 
     for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
 #ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
@@ -464,15 +452,19 @@ RocksteadyMigration::pullAndReplay_main()
         return workDone;
     } // End of STEP-3.
 
+#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
+    // STEP-4: Make progress on any priority hashes pull and replay requests.
     workDone += pullAndReplay_priorityHashes();
-
-    // STEP-4: Issue a new batch of pulls if possible.
-    workDone += pullAndReplay_sendPullRpcs();
     // End of STEP-4.
+#endif //ROCKSTEADY_SYNC_PRIORITY_HASHES
 
-    // STEP-5: Issue a new batch of replays if possible.
-    workDone += pullAndReplay_sendReplayRpcs();
+    // STEP-5: Issue a new batch of pulls if possible.
+    workDone += pullAndReplay_sendPullRpcs();
     // End of STEP-5.
+
+    // STEP-6: Issue a new batch of replays if possible.
+    workDone += pullAndReplay_sendReplayRpcs();
+    // End of STEP-6.
 
     pullAndReplay_checkEfficiency();
 
@@ -966,9 +958,13 @@ RocksteadyMigration::sideLogCommit()
                     endKeyHash, tableId);
 
             sideLogCommitRpc.destroy();
+#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
             nextSideLogCommit < MAX_PARALLEL_REPLAY_RPCS ?
                     nextSideLogCommit++ :
                     priorityHashesSideLogCommitted = true;
+#else
+            nextSideLogCommit++;
+#endif // ROCKSTEADY_SYNC_PRIORITY_HASHES
             workDone++;
         } else {
             return workDone;
@@ -988,6 +984,7 @@ RocksteadyMigration::sideLogCommit()
                     endKeyHash, tableId);
         } // End of Rule 3.
 
+#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
         // Rule 4: If all regular sidelogs have committed, issue a commit on
         // the sidelog that was used for the priority hashes.
         else if (!priorityHashesSideLogCommitted) {
@@ -999,6 +996,7 @@ RocksteadyMigration::sideLogCommit()
                     " (Tablet[0x%lx, 0x%lx] in table %lu)", startKeyHash,
                     endKeyHash, tableId);
         } // End of Rule 4.
+#endif // ROCKSTEADY_SYNC_PRIORITY_HASHES
 
         // Rule 5: If all sidelogs have been committed, change state to
         // TEAR_DOWN.
