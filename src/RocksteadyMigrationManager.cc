@@ -233,8 +233,8 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     objectManager = &((context->getMasterService())->objectManager);
 
     // Reserve space for the priority hashes.
-    waitingPriorityHashes.resize(MAX_PRIORITY_HASHES);
-    inProgressPriorityHashes.resize(MAX_PRIORITY_HASHES);
+    waitingPriorityHashes.reserve(MAX_PRIORITY_HASHES);
+    inProgressPriorityHashes.reserve(MAX_PRIORITY_HASHES);
 
     // To begin with, all pull rpcs are free.
     for (uint32_t i = 0; i < MAX_PARALLEL_PULL_RPCS; i++) {
@@ -489,13 +489,13 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
             SegmentCertificate certificate;
             priorityPullRpc->wait(&certificate);
 
-            priorityHashesRequestBuffer->truncateFront(sizeof32(
+            priorityHashesResponseBuffer->truncateFront(sizeof32(
                     WireFormat::RocksteadyMigrationPriorityHashes::Response));
 
             // Issue a replay request to the worker manager.
             priorityReplayRpc.construct(&(partitions[0]) /* Required for
                                                             compilation */,
-                    &priorityHashesRequestBuffer, &priorityHashesSideLog,
+                    &priorityHashesResponseBuffer, &priorityHashesSideLog,
                     localLocator, certificate);
             context->workerManager->handleRpc(priorityReplayRpc.get());
 
@@ -515,8 +515,8 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
     if (priorityReplayRpc) {
         if (priorityReplayRpc->isReady()) {
             // If the replay completed, clear out inProgressPriorityHashes.
-            inProgressPriorityHashes.erase(inProgressPriorityHashes.begin(),
-                    inProgressPriorityHashes.end());
+            inProgressPriorityHashes.clear();
+
             priorityReplayRpc.destroy();
             workDone++;
         } else {
@@ -530,10 +530,11 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
     if (waitingPriorityHashes.size() > 0) {
         // Move all the priority hashes from the waiting list to the
         // in progress list, and clear out the waiting list.
-        copy(waitingPriorityHashes.begin(), waitingPriorityHashes.end(),
-                inProgressPriorityHashes.end());
-        waitingPriorityHashes.erase(waitingPriorityHashes.begin(),
-                waitingPriorityHashes.end());
+        for (auto it = waitingPriorityHashes.begin();
+                it != waitingPriorityHashes.end(); it++) {
+            inProgressPriorityHashes.push_back(*it);
+        }
+        waitingPriorityHashes.clear();
 
         priorityHashesRequestBuffer.construct();
         priorityHashesResponseBuffer.construct();
@@ -953,6 +954,8 @@ RocksteadyMigration::sideLogCommit()
         }
     } // End of Rule 1.
 
+    // TODO: Commit the priority sideLog.
+
     // Rule 2: If a sidelog commit is in progress, check to see if it has
     // completed.
     if (sideLogCommitRpc) {
@@ -990,8 +993,8 @@ RocksteadyMigration::sideLogCommit()
             LOG(NOTICE, "All sidelogs have been committed. Changing state"
                 " to TEAR_DOWN (Tablet[0x%lx, 0x%lx] in table %lu)."
                 " SideLog commit took %0.4f seconds.", startKeyHash,
-                endKeyHash, tableId, Cycles::toSeconds(sideLogCommitStartTS -
-                sideLogCommitEndTS));
+                endKeyHash, tableId, Cycles::toSeconds(sideLogCommitEndTS -
+                sideLogCommitStartTS));
 
             phase = TEAR_DOWN;
         } // End of Rule 4.
