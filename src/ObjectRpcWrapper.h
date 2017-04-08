@@ -47,6 +47,7 @@ class ObjectRpcWrapper : public RpcWrapper {
     virtual bool checkStatus();
     virtual bool handleTransportError();
     virtual void send();
+    virtual void dumpRequest();
 
     /// Overall ramcloud state information. Primarily we access dispatch and
     /// objectFinder.

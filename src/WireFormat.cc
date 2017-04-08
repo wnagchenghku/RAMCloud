@@ -121,6 +121,7 @@ opcodeSymbol(uint32_t opcode)
         case TX_PREPARE:                   return "TX_PREPARE";
         case TX_REQUEST_ABORT:             return "TX_REQUEST_ABORT";
         case TX_HINT_FAILED:               return "TX_HINT_FAILED";
+        case ECHO:                         return "ECHO";
         case ROCKSTEADY_PREP_FOR_MIGRATION:
                                     return "ROCKSTEADY_PREP_FOR_MIGRATION";
         case ROCKSTEADY_MIGRATION_PULL_HASHES:

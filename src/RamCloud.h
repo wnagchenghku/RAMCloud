@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -75,6 +75,8 @@ class RamCloud {
     void createIndex(uint64_t tableId, uint8_t indexId, uint8_t indexType,
             uint8_t numIndexlets = 1);
     void dropIndex(uint64_t tableId, uint8_t indexId);
+    void echo(const char* serviceLocator, const void* message, uint32_t length,
+         uint32_t echoLength, Buffer* echo);
     uint64_t enumerateTable(uint64_t tableId, bool keysOnly,
          uint64_t tabletFirstHash, Buffer& state, Buffer& objects);
     void getLogMetrics(const char* serviceLocator,
@@ -279,6 +281,30 @@ class DropIndexRpc : public CoordinatorRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(DropIndexRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::echo operation,
+ * allowing it to execute asynchronously.
+ */
+class EchoRpc : public RpcWrapper {
+  public:
+    EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
+            const void* message, uint32_t length, uint32_t echoLength,
+            Buffer* echo);
+    ~EchoRpc() {}
+    virtual void completed();
+    uint64_t getCompletionTime();
+    /// \copydoc RpcWrapper::docForWait
+    void wait();
+
+  PRIVATE:
+    RamCloud* ramcloud;
+    /// TSC value when the RPC is sent.
+    uint64_t startTime;
+    /// TSC value when the RPC is completed.
+    uint64_t endTime;
+    DISALLOW_COPY_AND_ASSIGN(EchoRpc);
 };
 
 /**

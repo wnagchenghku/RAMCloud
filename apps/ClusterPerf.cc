@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016 Stanford University
+/* Copyright (c) 2011-2017 Stanford University
  * Copyright (c) 2011 Facebook
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -134,6 +134,11 @@ uint64_t controlTable = -1;
 // table from migrate in the middle of the benchmark. If 0 (the default),
 // then no migration is done.
 int migratePercentage = 0;
+
+// For multiRead_colocation. Number of accesses (out of numObjects) that
+// will be read from different servers than the reset.
+// That is, spannedOps + 1  servers will be accessed per multiread.
+int spannedOps = 0;
 
 // For doWorkload-based experiments tells how long to run before exiting.
 int seconds = 10;
@@ -1072,6 +1077,72 @@ readObject(uint64_t tableId, const void* key, uint16_t keyLength,
 }
 
 /**
+ * Send and receive messages of given sizes, return information about the
+ * distribution of message round-trip times and network bandwidth.
+ *
+ * \param receivers
+ *      Service locators of master servers that are receivers of the messages.
+ * \param length
+ *      Size of the message being sent, in bytes.
+ * \param echoLength
+ *      Size of the message to be echoed, in bytes.
+ * \param iteration
+ *      Send this many messages.
+ * \param timeLimit
+ *      Maximum time (in seconds) to spend on this test: if this much
+ *      time elapses, then less iterations will be run.
+ *
+ * \return
+ *      Information about how long the echos took.
+ */
+TimeDist
+echoMessages(const vector<string>& receivers, uint32_t length,
+        uint32_t echoLength, uint64_t iteration, double timeLimit)
+{
+    // Collect at most MAX_NUM_SAMPLE samples. Any more samples will simply
+    // overwrite old ones by wrapping around.
+    const uint32_t MAX_NUM_SAMPLE = 1000000;
+    std::vector<uint64_t> times(MAX_NUM_SAMPLE);
+
+    uint64_t totalCycles = 0;
+    static const string message(length, 'x');
+    Buffer buffer;
+    size_t numReceivers = receivers.size();
+
+    // Each iteration of the following loop invokes an Echo RPC and records
+    // its completion time.
+    uint64_t stopTime = Cycles::rdtsc() + Cycles::fromSeconds(timeLimit);
+    uint64_t count;
+    for (count = 0; count < iteration; count++) {
+        uint64_t now = Cycles::rdtsc();
+        if (now >= stopTime) {
+            LOG(NOTICE, "time expired after %lu iterations", count);
+            break;
+        }
+
+        const char* receiver = receivers[count % numReceivers].c_str();
+        EchoRpc rpc(cluster, receiver, message.c_str(), length, echoLength,
+                &buffer);
+        try {
+            rpc.wait();
+            totalCycles += rpc.getCompletionTime();
+            times[count % MAX_NUM_SAMPLE] = rpc.getCompletionTime();
+        } catch (ClientException& ex) {
+            LOG(NOTICE, "Echo RPC failed with exception %s", ex.toString());
+        }
+    }
+    if (count <= MAX_NUM_SAMPLE) {
+        times.resize(count);
+    }
+
+    TimeDist result;
+    getDist(times, &result);
+    double totalRxBytes = echoLength * static_cast<double>(count);
+    result.bandwidth = totalRxBytes/Cycles::toSeconds(totalCycles);
+    return result;
+}
+
+/**
  * Read randomly-chosen objects from a single table and return information about
  * the distribution of read times.
  *
@@ -1363,6 +1434,26 @@ string
 keyVal(int client, const char* name)
 {
     return format("%d:%s", client, name);
+}
+
+/**
+ * Slaves invoke this function to indicate their current state.
+ *
+ * \param slaveId
+ *      The client index of the slave.
+ * \return
+ *      A string identifying what the slave is doing now, such as "idle".
+ */
+string
+getSlaveState(int slaveId)
+{
+    string key = keyVal(slaveId, "state");
+    Buffer buffer;
+    cluster->read(controlTable, key.c_str(), downCast<uint16_t>(key.length()),
+            &buffer);
+    string state(reinterpret_cast<char*>(buffer.getRange(0, buffer.size())),
+            buffer.size());
+    return state;
 }
 
 /**
@@ -1733,6 +1824,32 @@ getMetrics(ClientMetrics& metrics, int clientCount)
 }
 
 /**
+ * Obtain a list of available servers in the cluster from the coordinator.
+ *
+ * @param[out] servers
+ *      Filled in with information about available servers. Each server is
+ *      described as a (service mask, service locator) pair indexed by its
+ *      server Id.
+ */
+void
+getServerList(std::map<uint64_t, std::pair<string, ServiceMask>>* servers)
+{
+    servers->clear();
+    ProtoBuf::ServerList serverList;
+    CoordinatorClient::getServerList(cluster->clientContext, &serverList);
+    for (int i = 0; i < serverList.server_size(); i++) {
+        const ProtoBuf::ServerList_Entry* server = &serverList.server(i);
+        if (ServerStatus(server->status()) != ServerStatus::UP) {
+            continue;
+        }
+
+        (*servers)[server->server_id()] = std::make_pair(
+                server->service_locator(),
+                ServiceMask::deserialize(server->services()));
+    }
+}
+
+/**
  * Return the largest element in a vector.
  *
  * \param data
@@ -1884,10 +2001,10 @@ basic()
         return;
     Buffer input, output;
 #define NUM_SIZES 5
-    int sizes[] = {100, 1000, 10000, 100000, 1000000};
+    int sizes[NUM_SIZES] = {100, 1000, 10000, 100000, 1000000};
     TimeDist readDists[NUM_SIZES], writeDists[NUM_SIZES];
-    const char* ids[] = {"100", "1K", "10K", "100K", "1M"};
-    uint16_t keyLength = 30;
+    const char* ids[NUM_SIZES] = {"100", "1K", "10K", "100K", "1M"};
+    const uint16_t keyLength = 30;
     char name[50], description[50];
 
     // Each iteration through the following loop measures random reads and
@@ -2206,6 +2323,378 @@ doMultiWrite(int dataLength, uint16_t keyLength,
     double latency = timeMultiWrite(*writeRequests, numMasters*objsPerMaster);
 
     return latency;
+}
+
+/**
+ * Similar to "multiRead" tests above, but varies how multi-read keys are
+ * mapped to servers. spannedOps controls how many of the requests in each
+ * multiget go to different servers.
+ *
+ * \param dataLength
+ *      Length of data for each object to be written.
+ * \param keyLength
+ *      Length of key for each object to be written.
+ * \param numMasters
+ *      The number of master servers across which the objects written
+ *      should be distributed.
+ * \param objsPerMaster
+ *      The number of objects to be written to each master server.
+ */
+void
+doMultiReadColocation(
+    int dataLength,
+    uint16_t keyLength,
+    int numMasters,
+    int objsPerMaster)
+{
+    std::vector<uint64_t> tableIds(numMasters);
+    const uint16_t keyLen = 30;
+    char key[keyLen];
+
+    if (clientIndex == 0) {
+        createTables(tableIds, dataLength, "0", 1);
+
+        Buffer value{};
+        char garbage[dataLength];
+        value.appendCopy(garbage, dataLength);
+
+        foreach (uint64_t tableId, tableIds) {
+            for (uint64_t key  = 0; key < uint64_t(objsPerMaster); ++key) {
+                cluster->write(tableId, &key, sizeof(key),
+                               value.getRange(0, dataLength), dataLength);
+            }
+        }
+
+        memset(key, 0, keyLen);
+
+        foreach (uint64_t tableId, tableIds) {
+            cluster->objectServerControl(tableId, "0", 1,
+                                    WireFormat::START_PERF_COUNTERS);
+        }
+
+        sendCommand("run", "running", 1, numClients-1);
+
+        Buffer statsBuffer;
+        vector<PerfStats> startStats{};
+        vector<PerfStats> finishStats{};
+
+        foreach (uint64_t tableId, tableIds) {
+            cluster->objectServerControl(tableId, "0", 1,
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+                    &statsBuffer);
+            startStats.emplace_back(*statsBuffer.getStart<PerfStats>());
+        }
+
+        sleep(10);
+
+        foreach (uint64_t tableId, tableIds) {
+            cluster->objectServerControl(tableId, "0", 1,
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0,
+                    &statsBuffer);
+            finishStats.emplace_back(*statsBuffer.getStart<PerfStats>());
+        }
+
+        printf("server readsSec utilization dispatchUtilization "
+                "objectsPerOp spannedObjectsPerOp\n");
+        for (size_t i = 0; i < tableIds.size(); ++i) {
+            const PerfStats& start = startStats[i];
+            const PerfStats& end = finishStats[i];
+
+            uint64_t cycles = end.collectionTime - start.collectionTime;
+            double elapsedTime = double(cycles) / end.cyclesPerSecond;
+
+            double rate =
+                double(end.readCount - start.readCount) / elapsedTime;
+
+            double utilization =
+                double(end.workerActiveCycles - start.workerActiveCycles) /
+                double(cycles);
+
+            double dispatchUtilization =
+                double(end.dispatchActiveCycles - start.dispatchActiveCycles) /
+                double(cycles);
+
+            printf("%lu %.0f %8.3f %8.3f %d %d\n",
+                    i, rate, utilization, dispatchUtilization,
+                    numObjects, spannedOps);
+        }
+
+        sendCommand("done", "done", 1, numClients-1);
+    } else {
+        char command[20];
+        while (true) {
+            getCommand(command, sizeof(command), false);
+            if (strcmp(command, "run") == 0) {
+                setSlaveState("running");
+                RAMCLOUD_LOG(NOTICE,
+                        "Starting multiReadColocation benchmark");
+                break;
+            }
+        }
+
+        getTableIds(tableIds);
+
+        static const size_t atATime = 16;
+
+        uint64_t keys[objsPerMaster];
+        MultiReadObject requestObjects[atATime][objsPerMaster];
+        MultiReadObject* requests[atATime][objsPerMaster];
+        Tub<ObjectBuffer> values[atATime][objsPerMaster];
+
+        // Create read object corresponding to each object to be
+        // used in the multiread request later.
+        for (uint64_t instance = 0; instance < atATime; ++instance) {
+            for (uint64_t key  = 0; key < uint64_t(objsPerMaster); ++key) {
+                keys[key] = key;
+
+                uint64_t tableIndex = clientIndex - 1;
+                if (key < uint64_t(spannedOps))
+                    tableIndex += (key + 1);
+                tableIndex %= numMasters;
+                uint64_t tableId = tableIds[tableIndex];
+
+                requestObjects[instance][key] =
+                    MultiReadObject(
+                            tableId,
+                            &keys[key],
+                            sizeof(key),
+                            &values[instance][key]);
+                requests[instance][key] = &requestObjects[instance][key];
+            }
+        }
+
+        Tub<MultiRead> multiReads[atATime]{};
+
+        size_t instance = 0;
+        while (true) {
+            getCommand(command, sizeof(command), false);
+            if (strcmp(command, "run") == 0) {
+                uint64_t checkTime =
+                    Cycles::rdtsc() + Cycles::fromSeconds(1.0);
+
+                do {
+                    Tub<MultiRead>& op = multiReads[instance];
+                    if (!op) {
+                        op.construct(cluster,
+                                     &requests[instance][0],
+                                     uint32_t(objsPerMaster));
+                    } else if (op->isReady()) {
+                        op->wait();
+                        op.destroy();
+                    }
+                    cluster->poll();
+                    instance = (instance + 1) % atATime;
+                } while (Cycles::rdtsc() < checkTime);
+            } else if (strcmp(command, "done") == 0) {
+                setSlaveState("done");
+                RAMCLOUD_LOG(NOTICE, "Ending multiReadColocation benchmark");
+                return;
+            } else {
+                RAMCLOUD_LOG(ERROR, "unknown command %s", command);
+                return;
+            }
+        }
+    }
+}
+
+
+// Measure round-trip time for messages of different sizes.
+void
+echo_basic()
+{
+    if (clientIndex != 0)
+        return;
+    const uint32_t outgoingMessageLength = 30;
+#define NUM_SIZES 5
+    int sizes[NUM_SIZES] = {100, 1000, 10000, 100000, 1000000};
+    TimeDist echoDists[NUM_SIZES];
+    const char* ids[NUM_SIZES] = {"100", "1K", "10K", "100K", "1M"};
+    char name[50], description[50];
+
+    // Choose the first master server in the server list as the receiver.
+    using ServerMap = std::map<uint64_t, std::pair<string, ServiceMask>>;
+    ServerMap servers;
+    getServerList(&servers);
+    string receiverLocator;
+    ServerMap::iterator it;
+    for (it = servers.begin(); it != servers.end(); it++) {
+        if (it->second.second.has(WireFormat::MASTER_SERVICE)) {
+            break;
+        }
+    }
+    if (it != servers.end()) {
+        receiverLocator = it->second.first;
+        LOG(NOTICE, "Choose server %lu at %s as the receiver", it->first,
+                receiverLocator.c_str());
+    } else {
+        LOG(ERROR, "No master server available");
+        return;
+    }
+
+    // Each iteration through the following loop measures the round-trip time
+    // of a particular message size.
+    for (int i = 0; i < NUM_SIZES; i++) {
+        int size = sizes[i];
+        LOG(NOTICE, "Starting echo test for %d-byte reply messages", size);
+        cluster->logMessageAll(NOTICE,
+                "Starting echo test for %d-byte reply messages", size);
+        echoDists[i] = echoMessages({receiverLocator}, outgoingMessageLength,
+                size, 100000, 2.0);
+    }
+    Logger::get().sync();
+
+    // Print out the results (in a different order):
+    for (int i = 0; i < NUM_SIZES; i++) {
+        TimeDist* dist = &echoDists[i];
+        snprintf(description, sizeof(description),
+                "send %uB message, receive %sB message", outgoingMessageLength,
+                ids[i]);
+        snprintf(name, sizeof(name), "echo%s", ids[i]);
+        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
+                description);
+        snprintf(name, sizeof(name), "echo%s.min", ids[i]);
+        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
+                description);
+        snprintf(name, sizeof(name), "echo%s.9", ids[i]);
+        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
+                description);
+        if (dist->p99 != 0) {
+            snprintf(name, sizeof(name), "echo%s.99", ids[i]);
+            printf("%-20s %s     %s 99%%\n", name,
+                    formatTime(dist->p99).c_str(), description);
+        }
+        if (dist->p999 != 0) {
+            snprintf(name, sizeof(name), "echo%s.999", ids[i]);
+            printf("%-20s %s     %s 99.9%%\n", name,
+                    formatTime(dist->p999).c_str(), description);
+        }
+        snprintf(name, sizeof(name), "echoBw%s", ids[i]);
+        snprintf(description, sizeof(description),
+                "bandwidth receiving %sB messages", ids[i]);
+        printBandwidth(name, dist->bandwidth, description);
+    }
+#undef NUM_SIZES
+}
+
+// This benchmark measures the latency of sending and receiving small messages
+// in the presence of large messages, when there are multiple senders but only
+// one receiver.
+void
+echo_incast()
+{
+    // Define parameters that control the experiment.
+    const uint32_t echoSize = 30;
+    const double masterRunningSecs = seconds;
+    const double slaveWarmupSecs = 1.0;
+    const double slaveRunningSecs = masterRunningSecs + 2.0;
+    uint32_t messageSize;
+
+    char name[50], description[50];
+    TimeDist dist[1];
+    Buffer statsBefore, statsAfter;
+    string receiverLocator;
+    if (clientIndex == 0) {
+        // Master client chooses the first master server in the server list as
+        // the receiver.
+        using ServerMap = std::map<uint64_t, std::pair<string, ServiceMask>>;
+        ServerMap servers;
+        getServerList(&servers);
+        ServerMap::iterator it;
+        for (it = servers.begin(); it != servers.end(); it++) {
+            if (it->second.second.has(WireFormat::MASTER_SERVICE)) {
+                break;
+            }
+        }
+        if (it != servers.end()) {
+            receiverLocator = it->second.first;
+            LOG(NOTICE, "Choose server %lu at %s as the receiver", it->first,
+                    receiverLocator.c_str());
+        } else {
+            LOG(ERROR, "No master server available");
+            return;
+        }
+
+        // Inform slave clients about the decision and wait until all of them
+        // have started.
+        sendCommand(receiverLocator.c_str(), "running", 1, numClients-1);
+
+        // Run experiment and collect server performance statistics.
+        messageSize = 30;
+        LOG(NOTICE, "Send %uB messages, receive %uB messages", messageSize,
+                echoSize);
+        cluster->serverControlAll(WireFormat::START_PERF_COUNTERS);
+        cluster->serverControlAll(WireFormat::GET_PERF_STATS, NULL, 0,
+                &statsBefore);
+        dist[0] = echoMessages({receiverLocator}, messageSize, echoSize, ~0u,
+                masterRunningSecs);
+        cluster->serverControlAll(WireFormat::GET_PERF_STATS, NULL, 0,
+                &statsAfter);
+
+        // Raise a warning if any slave client may have finished before us.
+        for (int i = 1; i < numClients; i++) {
+            string state = getSlaveState(i);
+            if (state.compare("running") != 0) {
+                LOG(ERROR, "Slave client %d may have finished before "
+                        "the master client", i);
+            }
+        }
+
+        // Print echo completion time distribution.
+        Logger::get().sync();
+        snprintf(description, sizeof(description),
+                "send %uB message, receive %uB message", messageSize, echoSize);
+        snprintf(name, sizeof(name), "echo");
+        printf("%-20s %s     %s median\n", name, formatTime(dist->p50).c_str(),
+                description);
+        snprintf(name, sizeof(name), "echo.min");
+        printf("%-20s %s     %s minimum\n", name, formatTime(dist->min).c_str(),
+                description);
+        snprintf(name, sizeof(name), "echo.9");
+        printf("%-20s %s     %s 90%%\n", name, formatTime(dist->p90).c_str(),
+                description);
+        if (dist->p99 != 0) {
+            snprintf(name, sizeof(name), "echo.99");
+            printf("%-20s %s     %s 99%%\n", name,
+                    formatTime(dist->p99).c_str(), description);
+        }
+        if (dist->p999 != 0) {
+            snprintf(name, sizeof(name), "echo.999");
+            printf("%-20s %s     %s 99.9%%\n", name,
+                    formatTime(dist->p999).c_str(), description);
+        }
+    } else {
+        // Slave client obtains the receiver's service locator from the master
+        // client.
+        char command[50];
+        receiverLocator = getCommand(command, sizeof(command));
+        messageSize = 1000000;
+        LOG(NOTICE, "Send %uB messages to server at %s, receive %uB messages",
+                messageSize, receiverLocator.c_str(), echoSize);
+
+        // Do some warmup before setting its state to "running".
+        echoMessages({receiverLocator}, messageSize, echoSize, ~0u,
+               slaveWarmupSecs);
+        setSlaveState("running");
+        dist[0] = echoMessages({receiverLocator}, messageSize, echoSize, ~0u,
+               slaveRunningSecs);
+        setSlaveState("done");
+    }
+
+    // Print client bandwidth information.
+    Logger::get().sync();
+    double echoRatio = 1.0 * echoSize / messageSize;
+    snprintf(description, sizeof(description),
+             "bandwidth sending %uB messages", messageSize);
+    printBandwidth("sendBw", dist->bandwidth / echoRatio, description);
+    snprintf(description, sizeof(description),
+             "bandwidth receiving %uB messages", echoSize);
+    printBandwidth("recvBw", dist->bandwidth, description);
+
+    // Print server network bandwidth information.
+    if (clientIndex == 0) {
+        printf("========\n%s",
+            PerfStats::printClusterStats(&statsBefore, &statsAfter).c_str());
+    }
 }
 
 /**
@@ -3391,9 +3880,9 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
         uint32_t numHashes[numRequests];
         uint16_t nextKeyLength[numRequests];
         uint64_t nextKeyHash[numRequests];
-        char primaryKey[numRequests][30];
-        char firstKey[numRequests][30];
-        char lastKey[numRequests][30];
+        char primaryKey[numRequests][50];
+        char firstKey[numRequests][50];
+        char lastKey[numRequests][50];
 
         Tub<LookupIndexKeysRpc> rpcs[numRequests];
 
@@ -3457,9 +3946,9 @@ indexScalabilityCommonLookup(uint8_t numIndexlets, int numObjectsPerIndxlet,
 
     while (true) {
         int numRequests = concurrent;
-        char primaryKey[numRequests][30];
-        char firstKey[numRequests][30];
-        char lastKey[numRequests][30];
+        char primaryKey[numRequests][50];
+        char firstKey[numRequests][50];
+        char lastKey[numRequests][50];
 
         uint64_t startTimes[numRequests];
         uint64_t stopTimes[numRequests];
@@ -3607,7 +4096,7 @@ indexScalability()
         for (int i = 0; i < numObjectsPerIndexlet; i++) {
             int intKey = randomized[i];
 
-            char primaryKey[30];
+            char primaryKey[50];
             snprintf(primaryKey, sizeof(primaryKey), "%c:%dp%0*d",
                     firstKey, intKey, 30, 0);
             char secondaryKey[30];
@@ -3894,6 +4383,12 @@ multiReadThroughput()
             }
         }
     }
+}
+
+void
+multiRead_colocation()
+{
+    doMultiReadColocation(objectSize, 30, numTables, numObjects);
 }
 
 // This benchmark measures the multiwrite times for multiple objects on a
@@ -4401,7 +4896,7 @@ doWorkload(OpType type)
         // Stick a migration in the middle of the benchmark, if requested.
         if (migratePercentage &&
             !migrationCycles &&
-            stop > experimentStartTicks + oneSecond)
+            stop > experimentStartTicks + oneSecond * 5)
         {
             if (useRocksteady && !rocksteadyMigration) {
                 RAMCLOUD_LOG(NOTICE, "Starting migration\n");
@@ -4617,8 +5112,8 @@ transaction_collision()
            "avg. objs | Avg. Latency (us) |\n");
     printf("#------------------------------------------------------------\n");
     for (int i = 1; i < numClients; ++i) {
-        char abortCountKey[20], commitCountKey[20], latencyKey[20],
-             serverSpanKey[20], objsSelectedKey[20];
+        char abortCountKey[30], commitCountKey[30], latencyKey[30],
+             serverSpanKey[30], objsSelectedKey[30];
         snprintf(abortCountKey, sizeof(abortCountKey), "abortCount %3d", i);
         Buffer value;
         cluster->read(dataTable, abortCountKey, (uint16_t)strlen(abortCountKey),
@@ -6325,7 +6820,7 @@ writeThroughput()
                             "Starting writeThroughput benchmark");
                 }
 
-                // Perform reads for a second (then check to see
+                // Perform writes for a second (then check to see
                 // if the experiment is over).
                 startTime = Cycles::rdtsc();
                 objectsWritten = 0;
@@ -6453,6 +6948,8 @@ struct TestInfo {
 TestInfo tests[] = {
     {"basic", basic},
     {"broadcast", broadcast},
+    {"echo_basic", echo_basic},
+    {"echo_incast", echo_incast},
     {"indexBasic", indexBasic},
     {"indexRange", indexRange},
     {"indexMultiple", indexMultiple},
@@ -6464,11 +6961,12 @@ TestInfo tests[] = {
     {"transactionContention", transactionContention},
     {"transactionDistRandom", transactionDistRandom},
     {"transactionThroughput", transactionThroughput},
-    {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiRead_oneMaster", multiRead_oneMaster},
     {"multiRead_oneObjectPerMaster", multiRead_oneObjectPerMaster},
     {"multiRead_general", multiRead_general},
     {"multiRead_generalRandom", multiRead_generalRandom},
+    {"multiRead_colocation", multiRead_colocation},
+    {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiReadThroughput", multiReadThroughput},
     {"netBandwidth", netBandwidth},
     {"readAllToAll", readAllToAll},
@@ -6543,6 +7041,9 @@ try
                 "For readDistWorkload and writeDistWorkload, the percentage "
                 "of the first table from migrate in the middle of the "
                 "benchmark. If 0 (the default), then no migration is done.")
+        ("spannedOps", po::value<int>(&spannedOps)->default_value(0),
+                "number of objects per multiget that should come from "
+                "different servers than the rest")
         ("seconds", po::value<int>(&seconds)->default_value(30),
                 "Number of seconds to run the experiment for; "
                 "only applies to doWorkload based experiments.")
@@ -6600,3 +7101,4 @@ catch (std::exception& e) {
     RAMCLOUD_LOG(ERROR, "%s", e.what());
     exit(1);
 }
+

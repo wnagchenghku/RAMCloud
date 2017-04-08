@@ -145,4 +145,13 @@ ObjectRpcWrapper::send()
     }
 }
 
+void
+ObjectRpcWrapper::dumpRequest()
+{
+    if (responseHeader->status == STATUS_RETRY) {
+        LOG(NOTICE, "Retry received on key-hash 0x%lx, tableId %lu.",
+            keyHash, tableId);
+    }
+}
+
 } // namespace RAMCloud

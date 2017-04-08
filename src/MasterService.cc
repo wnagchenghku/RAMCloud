@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2016 Stanford University
+/* Copyright (c) 2009-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -142,6 +142,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::DropIndexletOwnership::opcode:
             callHandler<WireFormat::DropIndexletOwnership, MasterService,
                         &MasterService::dropIndexletOwnership>(rpc);
+            break;
+        case WireFormat::Echo::opcode:
+            callHandler<WireFormat::Echo, MasterService,
+                        &MasterService::echo>(rpc);
             break;
         case WireFormat::Enumerate::opcode:
             callHandler<WireFormat::Enumerate, MasterService,
@@ -410,6 +414,31 @@ MasterService::dropIndexletOwnership(
 
     LOG(NOTICE, "Dropped ownership of (or did not own) indexlet in "
             "tableId %lu, indexId %u", reqHdr->tableId, reqHdr->indexId);
+}
+
+/**
+ * Top-level server method to handle the ECHO request.
+ *
+ * \copydetails Service::ping
+ */
+void
+MasterService::echo(const WireFormat::Echo::Request* reqHdr,
+        WireFormat::Echo::Response* respHdr,
+        Rpc* rpc)
+{
+    // Pre-allocate static dummy data for use in the echoed message. The size
+    // is chosen to be 8MB since it is the largest object size in RAMCloud.
+    const uint32_t dummyBlockSize = 8 * 1024 * 1024;
+    static const string dummyBlock(dummyBlockSize, ' ');
+
+    respHdr->length = reqHdr->echoLength;
+    // Fill in the reply buffer with the dummy data.
+    uint32_t bytesLeft = reqHdr->echoLength;
+    while (bytesLeft > dummyBlockSize) {
+        bytesLeft -= dummyBlockSize;
+        rpc->replyPayload->appendExternal(dummyBlock.data(), dummyBlockSize);
+    }
+    rpc->replyPayload->appendExternal(dummyBlock.data(), bytesLeft);
 }
 
 /**
@@ -1047,12 +1076,12 @@ MasterService::migrateSingleLogEntry(
     if (!transferSeg)
         transferSeg.construct();
 
+#if !MIGRATION_SKIP_APPEND
     // If we can't fit it, send the current buffer and retry.
     if (!transferSeg->append(type, buffer)) {
         transferSeg->close();
         LOG(DEBUG, "Sending migration segment");
         if (expect_true(receiver != ServerId{})) {
-#define MIGRATION_SKIP_TX false
 #if !MIGRATION_SKIP_TX
             MasterClient::receiveMigrationData(context, receiver,
                     transferSeg.get(), tableId, firstKeyHash);
@@ -1070,6 +1099,7 @@ MasterService::migrateSingleLogEntry(
             return STATUS_INTERNAL_ERROR;
         }
     }
+#endif
 
     TEST_LOG("Migrated log entry type %s",
             LogEntryTypeHelpers::toString(type));
@@ -1124,8 +1154,10 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     MasterClient::prepForMigration(context, receiver, tableId,
             firstKeyHash, lastKeyHash);
+#if !(MIGRATION_SKIP_APPEND || MIGRATION_SKIP_TX || MIGRATION_SKIP_REPLAY)
     LogPosition newOwnerLogHead = MasterClient::getHeadOfLog(
             context, receiver);
+#endif
 
     LOG(NOTICE, "Migrating tablet [0x%lx,0x%lx] in tableId %lu to %s",
         firstKeyHash, lastKeyHash, tableId,
@@ -1192,6 +1224,11 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     // the tablet. If this succeeds, we are free to drop the tablet. The
     // data is all on the other machine and the coordinator knows to use it
     // for any recoveries.
+
+#if MIGRATION_SKIP_APPEND || MIGRATION_SKIP_TX || MIGRATION_SKIP_REPLAY
+    tabletManager.changeState(tableId, firstKeyHash, lastKeyHash,
+            TabletManager::LOCKED_FOR_MIGRATION, TabletManager::NORMAL);
+#else
     CoordinatorClient::reassignTabletOwnership(context,
             tableId, firstKeyHash, lastKeyHash, receiver,
             newOwnerLogHead.getSegmentId(), newOwnerLogHead.getSegmentOffset());
@@ -1218,6 +1255,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
 
     // Removed unnecessary prepared transaction operations.
     transactionManager.removeOrphanedOps();
+#endif
 }
 
 /**
@@ -1813,6 +1851,10 @@ MasterService::receiveMigrationData(
 
     LOG(NOTICE, "Receiving %u bytes of migration data for tablet [0x%lx,??] "
             "in tableId %lu", segmentBytes, firstKeyHash, tableId);
+
+#if MIGRATION_SKIP_REPLAY
+    return;
+#endif
 
     // Make sure we already have a table created that was previously prepped
     // for migration.

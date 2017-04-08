@@ -33,6 +33,8 @@ class RecoverSegmentBenchmark {
     ServerList serverList;
     MasterService* service;
     size_t numSegments;
+    bool hwThreadsBeforeCores;
+
     std::atomic<size_t> next;
     std::vector<Segment*> segments;
     std::atomic<size_t> nReady;
@@ -42,12 +44,14 @@ class RecoverSegmentBenchmark {
     RecoverSegmentBenchmark(
         string logSize,
         string hashTableSize,
-        size_t numSegments)
+        size_t numSegments,
+        bool hwThreadsBeforeCores)
         : context()
         , config(ServerConfig::forTesting())
         , serverList(&context)
         , service(NULL)
         , numSegments{numSegments}
+        , hwThreadsBeforeCores{hwThreadsBeforeCores}
         , next{}
         , segments{}
         , nReady{}
@@ -85,11 +89,14 @@ class RecoverSegmentBenchmark {
     void
     doReplay(int threadId)
     {
-        // Prefer Linux's core enumeration order: core-to-core, then across
-        // sockets, then loop back over hyperthreads.
-        Util::pinThreadToCore(threadId);
-        // Can also hack to e.g. prefer colocated hyperthreads to more cores.
-        //Util::pinThreadToCore(((threadId % 2) * 4) + (threadId / 2));
+        if (!hwThreadsBeforeCores) {
+            // Prefer Linux's core enumeration order: core-to-core, then across
+            // sockets, then loop back over hyperthreads.
+            Util::pinThreadToCore(threadId);
+        } else {
+            // Can also hack to prefer colocated hyperthreads to more cores.
+            Util::pinThreadToCore(((threadId % 2) * 8) + (threadId / 2));
+        }
 
         SideLog sideLog(service->objectManager.getLog());
 
@@ -112,7 +119,7 @@ class RecoverSegmentBenchmark {
         sideLog.commit();
     }
 
-    double
+    void
     run(uint32_t dataLen, size_t nThreads)
     {
         /*
@@ -124,10 +131,7 @@ class RecoverSegmentBenchmark {
         for (size_t i = 0; i < numSegments; i++) {
             segments.push_back(new Segment());
             while (1) {
-                char primaryKey[30];
-                snprintf(primaryKey, 30, "p%0*lu", 28, nextKeyVal);
-
-                Key key(0, primaryKey, 30);
+                Key key(0, &nextKeyVal, sizeof(nextKeyVal));
 
                 char objectData[dataLen];
 
@@ -196,31 +200,31 @@ class RecoverSegmentBenchmark {
         uint64_t totalSegmentBytes = uint64_t(numSegments) *
                                      Segment::DEFAULT_SEGMENT_SIZE;
 
-        fprintf(stderr, "%lu threads\n", nThreads);
-        fprintf(stderr, "Recovery of %lu %uKB Segments with %u byte Objects"
-            " took %lu ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
+        printf("%lu threads\n", nThreads);
+        printf("Recovery of %lu %uKB Segments with %u byte Objects took %lu "
+            "ms\n", numSegments, Segment::DEFAULT_SEGMENT_SIZE / 1024,
             dataLen, RAMCloud::Cycles::toNanoseconds(ticks) / 1000 / 1000);
-        fprintf(stderr, "Actual total object count: %lu (%lu bytes in Objects,"
-            " %.2f%% overhead)\n", numObjects, totalObjectBytes,
+        printf("Actual total object count: %lu (%lu bytes in Objects, %.2f%% "
+            "overhead)\n", numObjects, totalObjectBytes,
             100.0 *
             static_cast<double>(totalSegmentBytes - totalObjectBytes) /
             static_cast<double>(totalSegmentBytes));
 
         double seconds = Cycles::toSeconds(ticks);
-        fprintf(stderr, "Recovery object throughput: %.2f MB/s\n",
+        printf("Recovery object throughput: %.2f MB/s\n",
                static_cast<double>(totalObjectBytes) / seconds / 1024. / 1024.);
-        fprintf(stderr, "Recovery log throughput: %.2f MB/s\n",
+        printf("Recovery log throughput: %.2f MB/s\n",
               static_cast<double>(totalSegmentBytes) / seconds / 1024. / 1024.);
 
-        fprintf(stderr, "\n");
-        fprintf(stderr, "Verify object checksums: %.2f ms\n",
+        printf("\n");
+        printf("Verify object checksums: %.2f ms\n",
                Cycles::toSeconds(metrics->master.verifyChecksumTicks.load()) *
                1000.);
         metrics->master.verifyChecksumTicks = 0;
 
 #define DUMP_TEMP_TICKS(i)  \
 if (metrics->temp.ticks##i.load()) { \
-    fprintf(stderr, "temp.ticks%d: %.2f ms\n", i, \
+    printf("temp.ticks%d: %.2f ms\n", i, \
            Cycles::toSeconds(metrics->temp.ticks##i.load()) * \
            1000.); \
     metrics->temp.ticks##i = 0; \
@@ -228,7 +232,7 @@ if (metrics->temp.ticks##i.load()) { \
 
 #define DUMP_TEMP_COUNT(i)  \
 if (metrics->temp.count##i.load()) { \
-    fprintf(stderr, "temp.count%d: %lu\n", i, \
+    printf("temp.count%d: %lu\n", i, \
            metrics->temp.count##i.load()); \
     metrics->temp.count##i = 0; \
 }
@@ -254,9 +258,6 @@ if (metrics->temp.count##i.load()) { \
         DUMP_TEMP_COUNT(7);
         DUMP_TEMP_COUNT(8);
         DUMP_TEMP_COUNT(9);
-
-        return (static_cast<double>(totalSegmentBytes) /
-                seconds / 1024. / 1024. / 1024.);
     }
 
     DISALLOW_COPY_AND_ASSIGN(RecoverSegmentBenchmark);
@@ -265,33 +266,37 @@ if (metrics->temp.count##i.load()) { \
 }  // namespace RAMCloud
 
 int
-main()
+main(int argc, char* argv[])
 {
-    uint32_t numRuns = 10;
-    size_t numSegments = 6 * 600 / 8;
-    uint32_t dataLen[] = { 64, 128, 256, 512, 1024, 2048, 8192 };
-    size_t nThreads[] = { 1, 2, 4, 8 };
-    std::vector<double> replayThroughput;
+    size_t numSegments = 4096 / 8;
+    std::vector<uint32_t> dataLen{ 64, 128, 256, 512, 1024, 2048, 8192 };
+    std::vector<size_t> nThreads{ 1, 2, 4, 8, 16 };
+    bool hwThreadsBeforeCores = false;
 
-    for (uint32_t run = 0; run < numRuns; run++) {
-        for (size_t threads : nThreads) {
-            for (uint32_t len : dataLen) {
-                fprintf(stderr, "==========================\n");
-                RAMCloud::RecoverSegmentBenchmark rsb("5120", "10%",
-                        numSegments);
-                replayThroughput.push_back(rsb.run(len, threads));
-            }
-        }
+    int c;
+    while ((c = getopt(argc, argv, "t:s:h")) != -1) {
+      switch (c) {
+        case 't':
+          nThreads.clear();
+          nThreads.emplace_back(atol(optarg));
+          break;
+        case 's':
+          dataLen.clear();
+          dataLen.emplace_back(atol(optarg));
+          break;
+        case 'h':
+          hwThreadsBeforeCores = true;
+          break;
+      }
     }
 
-    uint32_t j = 0;
-    fprintf(stdout, "numThreads objectSize throughput\n");
-    for (uint32_t run = 0; run < numRuns; run++) {
-        for (size_t threads : nThreads) {
-            for (uint32_t len : dataLen) {
-                fprintf(stdout, "%zd %u %.2f\n", threads, len,
-                        replayThroughput[j++]);
-            }
+    for (size_t threads : nThreads) {
+        for (uint32_t len : dataLen) {
+            printf("==========================\n");
+            RAMCloud::RecoverSegmentBenchmark rsb{"8192", "10%",
+                                                  numSegments,
+                                                  hwThreadsBeforeCores};;
+            rsb.run(len, threads);
         }
     }
 

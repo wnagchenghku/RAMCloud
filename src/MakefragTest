@@ -247,10 +247,12 @@ $(OBJDIR)/zooTest: $(ZOO_TESTS_OBJFILES) $(OBJDIR)/gtest.a
 
 # The unit tests don't actually call all of these programs, but
 # they are included here to make sure they continue to build.
-test: $(OBJDIR)/test \
-      $(OBJDIR)/zooTest \
+test: $(OBJDIR)/zooTest \
       $(OBJDIR)/libramcloudtest.so \
-      testInstall
+      testInstall \
+      unit-test
+
+unit-test: $(OBJDIR)/test
 	$(OBJDIR)/test
 
 # This target is intended for running a subset of tests, such as those
@@ -264,15 +266,21 @@ ftest: $(OBJDIR)/test
 zooTest: $(OBJDIR)/zooTest
 	$(OBJDIR)/zooTest
 
+ifeq ($(GLIBCXX_USE_CXX11_ABI),yes)
+GLIBCXX_ABI := -D_GLIBCXX_USE_CXX11_ABI=1
+else
+GLIBCXX_ABI := -D_GLIBCXX_USE_CXX11_ABI=0
+endif
+
 # The following target tries to compile a simple RAMCloud client app using
 # only installed files, in order to ensure that "make install" has pulled
 # together all the information needed by client apps. Note: this target
 # does *not* use the normal compilation flags, since we only want installed
 # info to be available.
 testInstall: install
-	g++ --std=c++11 -g -DNDEBUG -Iinstall/include -I. src/TestClient.cc \
-            -o $(OBJDIR)/TestClient -Linstall/bin -lramcloud \
-            -Wl,-rpath=install/bin $(TEST_INSTALL_FLAGS)
+	$(CXX) --std=c++11 $(GLIBCXX_ABI) -g -DNDEBUG -Iinstall/include -I. \
+	        src/TestClient.cc -o $(OBJDIR)/TestClient -Linstall/lib/ramcloud/ \
+	        -lramcloud -Wl,-rpath=install/bin $(TEST_INSTALL_FLAGS)
 
 TESTS_ONLY_OBJFILES := $(TESTS_SRCFILES)
 TESTS_ONLY_OBJFILES := $(patsubst src/%.cc, $(OBJDIR)/%.o, $(TESTS_ONLY_OBJFILES))

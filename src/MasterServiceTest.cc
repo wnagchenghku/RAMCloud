@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -493,6 +493,22 @@ TEST_F(MasterServiceTest, takeIndexletOwnership) {
     EXPECT_EQ("", TestLog::get());
     // The message logging overlapping range and throwing the exception
     // is done by IndexletManager.
+}
+
+TEST_F(MasterServiceTest, echo_basics) {
+    Buffer echo;
+    ramcloud->echo("mock:host=master", "abcdef", 6, 6, &echo);
+    EXPECT_EQ("      ", TestUtil::toString(&echo));
+    EXPECT_EQ(6U, echo.size());
+
+    ramcloud->echo("mock:host=master", "abcdef", 6, 3, &echo);
+    EXPECT_EQ("   ", TestUtil::toString(&echo));
+    EXPECT_EQ(3U, echo.size());
+
+    ramcloud->echo("mock:host=master", "abcdef", 6, 9, &echo);
+    EXPECT_EQ(9U, echo.size());
+    echo.truncate(6);
+    EXPECT_EQ("      ", TestUtil::toString(&echo));
 }
 
 TEST_F(MasterServiceTest, enumerate_basics) {
@@ -3977,7 +3993,7 @@ TEST_F(MasterServiceTest, write_rejectRules) {
     RejectRules rules;
     memset(&rules, 0, sizeof(rules));
     rules.doesntExist = true;
-    uint64_t version;
+    uint64_t version = 0;
     EXPECT_THROW(ramcloud->write(1, "key0", 4, "item0", 5, &rules, &version),
             ObjectDoesntExistException);
     EXPECT_EQ(VERSION_NONEXISTENT, version);

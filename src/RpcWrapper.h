@@ -212,6 +212,8 @@ class RpcWrapper : public Transport::RpcNotifier {
     const char* stateString();
     bool waitInternal(Dispatch* dispatch, uint64_t abortTime = ~0UL);
 
+    virtual void dumpRequest();
+
     /// Request message.
     Buffer request;
     /// Response message.  In some cases the response buffer is provided by

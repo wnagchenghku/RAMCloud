@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -129,15 +129,16 @@ enum Opcode {
     TX_PREPARE                  = 77,
     TX_REQUEST_ABORT            = 78,
     TX_HINT_FAILED              = 79,
-    ROCKSTEADY_PREP_FOR_MIGRATION = 80,
-    ROCKSTEADY_MIGRATION_PULL_HASHES = 81,
-    ROCKSTEADY_MIGRATION_REPLAY = 82,
-    ROCKSTEADY_MIGRATE_TABLET = 83,
-    ROCKSTEADY_SIDELOG_COMMIT = 84,
-    ROCKSTEADY_TAKE_TABLET_OWNERSHIP = 85,
-    ROCKSTEADY_MIGRATION_PRIORITY_HASHES = 86,
-    ROCKSTEADY_DROP_SOURCE_TABLET = 87,
-    ILLEGAL_RPC_TYPE            = 88, // 1 + the highest legitimate Opcode
+    ECHO                        = 80,
+    ROCKSTEADY_PREP_FOR_MIGRATION = 81,
+    ROCKSTEADY_MIGRATION_PULL_HASHES = 82,
+    ROCKSTEADY_MIGRATION_REPLAY = 83,
+    ROCKSTEADY_MIGRATE_TABLET = 84,
+    ROCKSTEADY_SIDELOG_COMMIT = 85,
+    ROCKSTEADY_TAKE_TABLET_OWNERSHIP = 86,
+    ROCKSTEADY_MIGRATION_PRIORITY_HASHES = 87,
+    ROCKSTEADY_DROP_SOURCE_TABLET = 88,
+    ILLEGAL_RPC_TYPE            = 89, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -567,6 +568,20 @@ struct DropTabletOwnership {
     } __attribute__((packed));
     struct Response {
         ResponseCommon common;
+    } __attribute__((packed));
+};
+
+struct Echo {
+    static const Opcode opcode = ECHO;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint32_t length;            // Length of the original message.
+        uint32_t echoLength;        // Length of the echo message.
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint32_t length;            // Length of the echo message.
     } __attribute__((packed));
 };
 

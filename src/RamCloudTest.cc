@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016 Stanford University
+/* Copyright (c) 2011-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -196,6 +196,17 @@ TEST_F(RamCloudTest, concurrentAsyncRpc) {
         message2 = e.toSymbol();
     }
     EXPECT_EQ("STATUS_TABLE_DOESNT_EXIST", message2);
+}
+
+TEST_F(RamCloudTest, echo_basics) {
+    Buffer echo;
+    ramcloud->echo("mock:host=master1", "abcdef", 6, 6, &echo);
+    EXPECT_EQ("      ", TestUtil::toString(&echo));
+    EXPECT_EQ(6U, echo.size());
+
+    ramcloud->echo("mock:host=master2", "ghijkl", 6, 6, &echo);
+    EXPECT_EQ("      ", TestUtil::toString(&echo));
+    EXPECT_EQ(6U, echo.size());
 }
 
 TEST_F(RamCloudTest, enumeration_basics) {
@@ -435,6 +446,7 @@ TEST_F(RamCloudTest, incrementInt64) {
 }
 
 TEST_F(RamCloudTest, indexServerControl) {
+    TimeTrace::reset();
     Buffer output;
     TestLog::Enable _("createIndex");
     ramcloud->createIndex(tableId1, 2, 0);
@@ -534,7 +546,7 @@ TEST_F(RamCloudTest, objectServerControl) {
     string serverLocator = ramcloud->clientContext->objectFinder->lookupTablet(
                              tableId1, Key::getHash(tableId1, "0", 1))->
                                 serviceLocator;
-    Server* targetServer;
+    Server* targetServer = NULL;
     foreach (Server* server, cluster.servers) {
         if (serverLocator.compare(server->config.localLocator) == 0)
             targetServer = server;
@@ -554,6 +566,7 @@ TEST_F(RamCloudTest, objectServerControl) {
 }
 
 TEST_F(RamCloudTest, serverControlAll) {
+    TimeTrace::reset();
     Buffer output;
     ramcloud->serverControlAll(WireFormat::GET_TIME_TRACE, "abc", 3, &output);
     EXPECT_EQ(151U, output.size());

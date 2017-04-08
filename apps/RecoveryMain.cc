@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2016 Stanford University
+/* Copyright (c) 2009-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -66,7 +66,7 @@ void
 fillBuffer(Buffer& buffer, uint32_t size, uint64_t tableId,
            const void* key, uint16_t keyLength)
 {
-    char chunk[51];
+    char chunk[100];
     buffer.reset();
     uint32_t bytesLeft = size;
     int position = 0;
@@ -261,7 +261,7 @@ try
 
         Tub<WriteRpc> writeRpcs[8];
         uint64_t b = Cycles::rdtsc();
-        int j;
+        int j = 0;
         if (numOverwrites < 1)
             DIE("number of overwrite is less than 1! No data can be written");
         for (int rep = 0; rep < numOverwrites; rep++) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2016 Stanford University
+/* Copyright (c) 2010-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -446,6 +446,118 @@ DropIndexRpc::DropIndexRpc(RamCloud* ramcloud, uint64_t tableId,
 }
 
 /**
+ * Send a message to a given server and cause that server to echo with the
+ * exact same message.
+ *
+ * \param serviceLocator
+ *      The server that is the receiver of the message.
+ * \param message
+ *      Address of the first byte of the message to be sent; must contain at
+ *      least length bytes.
+ * \param length
+ *      Size of the original message, in bytes.
+ * \param echoLength
+ *      Size of the message to be echoed, in bytes.
+ * \param[out] echo
+ *      After a successful return, this Buffer will hold the echoed message,
+ *      which contains all whitespaces.
+ */
+void
+RamCloud::echo(const char* serviceLocator, const void* message,
+        uint32_t length, uint32_t echoLength, Buffer* echo)
+{
+    EchoRpc rpc(this, serviceLocator, message, length, echoLength, echo);
+    rpc.wait();
+}
+
+/**
+ * Constructor for EchoRpc: initiates an RPC in the same way as
+ * #RamCloud::echo, but returns once the RPC has been initiated, without
+ * waiting for it to complete.
+ *
+ * \param ramcloud
+ *      The RAMCloud object that governs this RPC.
+ * \param serviceLocator
+ *      The server that is the receiver of the message.
+ * \param message
+ *      Address of the first byte of the message to be sent; must contain at
+ *      least length bytes.
+ * \param length
+ *      Size of the original message, in bytes.
+ * \param echoLength
+ *      Size of the message to be echoed, in bytes.
+ * \param[out] echo
+ *      After a successful return, this Buffer will hold the echoed message,
+ *      which contains all whitespaces.
+ */
+EchoRpc::EchoRpc(RamCloud* ramcloud, const char* serviceLocator,
+        const void* message, uint32_t length, uint32_t echoLength,
+        Buffer* echo)
+    : RpcWrapper(sizeof(WireFormat::Echo::Response), echo)
+    , ramcloud(ramcloud)
+    , startTime(0)
+    , endTime(~0u)
+{
+    echo->reset();
+    try {
+        session = ramcloud->clientContext->transportManager->getSession(
+                serviceLocator);
+    } catch (const TransportException& e) {
+        session = FailSession::get();
+    }
+    WireFormat::Echo::Request* reqHdr(allocHeader<WireFormat::Echo>());
+    reqHdr->length = length;
+    reqHdr->echoLength = echoLength;
+    request.append(message, length);
+    startTime = Cycles::rdtsc();
+    send();
+}
+
+// See Transport::Notifier for documentation.
+void
+EchoRpc::completed() {
+    RpcWrapper::completed();
+    endTime = Cycles::rdtsc();
+}
+
+/**
+ * Return the time elapsed, in cycles, since RpcWrapper::send is called till
+ * RpcWrapper::completed is called. ~0u means the RPC failed.
+ */
+uint64_t
+EchoRpc::getCompletionTime() {
+    return endTime == ~0u ? ~0u : endTime - startTime;
+}
+
+/**
+ * Wait for the RPC to complete, and return the same results as
+ * #RamCloud::echo.
+ *
+ * \throw TransportException
+ *       Thrown if an unrecoverable error occurred while communicating with
+ *       the target server.
+ */
+void
+EchoRpc::wait()
+{
+    waitInternal(ramcloud->clientContext->dispatch);
+    if (getState() != RpcState::FINISHED) {
+        throw TransportException(HERE);
+    }
+
+    const WireFormat::Echo::Response* respHdr(
+            getResponseHeader<WireFormat::Echo>());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
+    // Truncate the response Buffer so that it consists of nothing
+    // but the echo data.
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->length == response->size());
+}
+
+/**
  * This method provides the core of table enumeration. It is invoked
  * repeatedly to enumerate a table; each invocation returns the next
  * set of objects (from a particular tablet stored on a particular server)
@@ -502,8 +614,8 @@ RamCloud::enumerateTable(uint64_t tableId, bool keysOnly,
 
 /**
  * Constructor for EnumerateTableRpc: initiates an RPC in the same way as
- * #RamCloud::enumerateTable, but returns once the RPC has been initiated, without
- * waiting for it to complete.
+ * #RamCloud::enumerateTable, but returns once the RPC has been initiated,
+ * without waiting for it to complete.
  *
  * \param ramcloud
  *      The RAMCloud object that governs this RPC.

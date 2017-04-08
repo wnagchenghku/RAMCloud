@@ -227,6 +227,11 @@ RpcWrapper::isReady() {
                     checkStatus();
                 }
 
+                if (message != NULL && !strcmp(message,
+                        "Tablet is currently under migration by Rocksteady!")) {
+                    dumpRequest();
+                }
+
             } else {
                 RAMCLOUD_CLOG(NOTICE,
                         "Server %s returned STATUS_RETRY from %s request",
@@ -396,4 +401,11 @@ RpcWrapper::waitInternal(Dispatch* dispatch, uint64_t abortTime)
     return true;
 }
 
-} // namespace RAMCloud
+void
+RpcWrapper::dumpRequest()
+{
+    // Default version that does nothing.
+}
+
+}
+ // namespace RAMCloud

@@ -10,10 +10,14 @@
 include $(wildcard private/MakefragPrivateTop)
 
 DEBUG ?= yes
+DEBUG_OPT ?= no
 YIELD ?= no
 SSE ?= sse4.2
-ARCH ?= core2
+ARCH ?= native
 COMPILER ?= gnu
+CCACHE ?= no
+GLIBCXX_USE_CXX11_ABI ?= no
+LINKER ?= default
 SANITIZER ?= none
 VALGRIND ?= no
 ONLOAD_DIR ?= /usr/local/openonload-201405
@@ -49,14 +53,24 @@ ZOOKEEPER_LIB :=
 ZOOKEEPER_DIR :=
 endif
 
-ifeq ($(DEBUG),yes)
 BASECFLAGS := -g
-OPTFLAG	 :=
+ifeq ($(DEBUG),yes)
+ifeq ($(DEBUG_OPT),yes)
+OPTFLAG := -Og
+endif
 DEBUGFLAGS := -DTESTING=1 -fno-builtin
 else
-BASECFLAGS := -g
 OPTFLAG := -O3
 DEBUGFLAGS := -DNDEBUG -Wno-unused-variable
+endif
+
+# Starting from GCC 5.1, libstdc++ introduced a new library ABI. To maintain
+# backwards compatibility, the _GLIBCXX_USE_CXX11_ABI macro is used to select
+# whether the declarations in the library headers use the old or new ABI.
+ifeq ($(GLIBCXX_USE_CXX11_ABI),yes)
+BASECFLAGS += -D_GLIBCXX_USE_CXX11_ABI=1
+else
+BASECFLAGS += -D_GLIBCXX_USE_CXX11_ABI=0
 endif
 
 COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
@@ -64,6 +78,11 @@ COMFLAGS := $(BASECFLAGS) $(OPTFLAG) -fno-strict-aliasing \
 	        $(DEBUGFLAGS)
 ifeq ($(COMPILER),gnu)
 COMFLAGS += -march=$(ARCH)
+endif
+ifeq ($(LINKER),gold)
+LDFLAGS += -fuse-ld=gold
+else ifeq ($(LINKER),bfd)
+LDFLAGS += -fuse-ld=bfd
 endif
 # Google sanitizers are not compatible with each other, so only apply one at a
 # time.
@@ -136,6 +155,12 @@ PROTOC ?= protoc
 EPYDOC ?= epydoc
 EPYDOCFLAGS ?= --simple-term -v
 DOXYGEN ?= doxygen
+
+# Using ccache is as simple as prefixing the compilation commands with `ccache`.
+ifeq ($(CCACHE),yes)
+CC := ccache $(CC)
+CXX := ccache $(CXX)
+endif
 
 # Directory for installation: various subdirectories such as include and
 # bin will be created by "make install".
@@ -227,7 +252,7 @@ DPDK_VERTIO_UIO := $(shell test -e $(DPDK_LIB_DIR)/librte_pmd_virtio_uio.so \
 	&& echo '-lrte_pmd_virtio_uio')
 DPDK_VERTIO := $(shell test -e $(DPDK_LIB_DIR)/librte_pmd_virtio.so \
 	&& echo '-lrte_pmd_virtio')
-DPDK_SHLIBS := -lethdev -lrte_mbuf -lrte_mempool -lrte_ring \
+DPDK_SHLIBS := -lrte_ethdev -lrte_net -lrte_mbuf -lrte_mempool -lrte_ring \
 	-lrte_kvargs -lrte_eal -lrte_pmd_e1000 -lrte_pmd_ixgbe \
 	-lrte_pmd_ring $(DPDK_MALLOC) $(DPDK_VIRTIO) $(DPDK_VERTIO_UIO)
 DPDK_RPATH := -Wl,-rpath,$(abspath $(DPDK_LIB_DIR))
@@ -380,23 +405,23 @@ tags-clean:
 print-%:
 	@echo $* = $($*)
 
-# Rebuild the Java bindings
-java: $(OBJDIR)/libramcloud.a
-	bindings/java/gradlew --project-dir bindings/java
-java-clean:
-	bindings/java/gradlew --project-dir bindings/java clean
-
 INSTALL_BINS := \
     $(APPOBJDIR)/client \
     $(OBJDIR)/coordinator \
     $(APPOBJDIR)/ensureServers \
-    $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/server \
     $(NULL)
 
 INSTALL_LIBS := \
+    $(OBJDIR)/libramcloud.so \
     $(OBJDIR)/libramcloud.a \
     $(NULL)
+
+# Rebuild the Java bindings
+java: $(INSTALL_LIBS)
+	bindings/java/gradlew --project-dir bindings/java
+java-clean:
+	bindings/java/gradlew --project-dir bindings/java clean
 
 # The header files below are those that must be installed in order to
 # compile RAMCloud applications. Please try to keep this list as short
