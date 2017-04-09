@@ -60,6 +60,8 @@ callees = {
                               "REASSIGN_TABLET_OWNERSHIP"],
     "MULTI_OP":              ["BACKUP_WRITE", "INSERT_INDEX_ENTRY",
                               "REMOVE_INDEX_ENTRY"],
+    "PING":                  ["ROCKSTEADY_MIGRATION_PULL_HASHES",
+                              "ROCKSTEADY_MIGRATION_PRIORITY_HASHES"],
     "READ":                  ["BACKUP_WRITE"],
     "READ_HASHES":           ["BACKUP_WRITE"],
     "READ_KEYS_AND_VALUE":   ["BACKUP_WRITE"],
@@ -185,7 +187,8 @@ if not finished:
 
 # Assign a level to Rocksteady RPCs.
 levels["ROCKSTEADY_MIGRATION_PULL_HASHES"] = 1
-levels["ROCKSTEADY_MIGRATION_REPLAY"] = 0
+levels["PING"] = levels["ROCKSTEADY_MIGRATION_PULL_HASHES"] + 1
+levels["ROCKSTEADY_MIGRATION_REPLAY"] = 1
 
 # Finally, generate output, consisting of the guts of a C++ array
 # (everything between the '[' and the ']').
