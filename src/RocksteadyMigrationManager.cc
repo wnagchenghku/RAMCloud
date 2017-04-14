@@ -304,7 +304,8 @@ RocksteadyMigration::addPriorityHash(uint64_t priorityHash)
     // Check if the priority hash is already present in waitingPriorityHashes.
     // If present, return immediately as this hash will anyway be sent out on
     // the next priority request.
-    if (*candidateHash == priorityHash) {
+    if (candidateHash != waitingPriorityHashes.begin() &&
+            *candidateHash == priorityHash) {
         return true;
     }
 
@@ -480,10 +481,13 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
     if (priorityPullRpc) {
         if (priorityPullRpc->isReady()) {
             SegmentCertificate certificate;
-            priorityPullRpc->wait(&certificate);
+            uint32_t numReturnedHashes = priorityPullRpc->wait(&certificate);
 
             priorityHashesResponseBuffer->truncateFront(sizeof32(
                     WireFormat::RocksteadyMigrationPriorityHashes::Response));
+
+            LOG(ll, "Priority hashes request returned %u log entries. Issuing"
+                    " replay.", numReturnedHashes);
 
             // Issue a replay request to the worker manager.
             priorityReplayRpc.construct(&(partitions[0]) /* Required for
@@ -509,6 +513,8 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
         if (priorityReplayRpc->isReady()) {
             // If the replay completed, clear out inProgressPriorityHashes.
             inProgressPriorityHashes.clear();
+
+            LOG(ll, "Priority replay completed.");
 
             priorityReplayRpc.destroy();
             workDone++;
@@ -545,6 +551,9 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
                 startKeyHash, endKeyHash, *sourceSafeVersion,
                 numRequestedHashes, priorityHashesRequestBuffer.get(),
                 priorityHashesResponseBuffer.get());
+
+        LOG(ll, "Issued priority hashes request on %lu hashes",
+                numRequestedHashes);
 
         workDone++;
     }
