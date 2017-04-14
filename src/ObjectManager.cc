@@ -391,7 +391,7 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                             key.getHash());
                 }
 
-                throw RetryException(HERE, 100, 200,
+                throw RetryException(HERE, 50, 100,
                         "Tablet is currently under migration by Rocksteady!");
 #else
                 // XXX If a safeVersion is being sent over to the source, make
