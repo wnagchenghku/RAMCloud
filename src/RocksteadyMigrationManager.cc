@@ -212,6 +212,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , sideLogCommitRpc()
     , migrationStartTS()
     , migrationEndTS()
+    , migratedMegaBytes()
     , sideLogCommitStartTS()
     , sideLogCommitEndTS()
 {
@@ -437,11 +438,14 @@ RocksteadyMigration::pullAndReplay_main()
         migrationEndTS = Cycles::rdtsc();
         sideLogCommitStartTS = migrationEndTS;
 
+        double migrationSeconds = Cycles::toSeconds(migrationEndTS -
+                migrationStartTS);
+
         LOG(NOTICE, "Migration has completed on all partitions. Changing"
                 " state to SIDELOG_COMMIT (Tablet[0x%lx, 0x%lx] in table %lu)."
-                " Moving data over took %0.4f seconds", startKeyHash,
-                endKeyHash, tableId, Cycles::toSeconds(migrationEndTS -
-                migrationStartTS));
+                " Moving %.2f MB of data over took %.2f seconds (%.2f MBps)",
+                startKeyHash, endKeyHash, tableId, migratedMegaBytes,
+                migrationSeconds, migratedMegaBytes / migrationSeconds);
 
         // Need to change tablet state here rather than after sidelog commit.
         // What if a priority hashes request is sent out after migration but
@@ -689,6 +693,9 @@ RocksteadyMigration::pullAndReplay_reapReplayRpcs()
                         (*partition)->totalPulledBytes,
                         (*partition)->totalReplayedBytes, startKeyHash,
                         endKeyHash, tableId);
+
+                migratedMegaBytes += static_cast<double>(
+                        (*partition)->totalReplayedBytes) / (1024. * 1024.);
 
                 (*partition).destroy();
                 numCompletedPartitions++;

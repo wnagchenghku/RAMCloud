@@ -496,6 +496,8 @@ class RocksteadyMigration {
 
     uint64_t migrationEndTS;
 
+    double migratedMegaBytes;
+
     uint64_t sideLogCommitStartTS;
 
     uint64_t sideLogCommitEndTS;
