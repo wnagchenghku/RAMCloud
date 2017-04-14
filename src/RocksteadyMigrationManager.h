@@ -361,7 +361,67 @@ class RocksteadyMigration {
         DISALLOW_COPY_AND_ASSIGN(RocksteadyReplayRpc);
     };
 
-    Tub<RocksteadyReplayRpc> priorityReplayRpc;
+    class RocksteadyPriorityReplayRpc : public Transport::ServerRpc {
+      public:
+        explicit RocksteadyPriorityReplayRpc(Tub<RocksteadyHashPartition>*
+                partition, Tub<Buffer>* response, Tub<SideLog>* sideLog,
+                string localLocator, SegmentCertificate certificate)
+            : partition(partition)
+            , responseBuffer(response)
+            , sideLog(sideLog)
+            , completed(false)
+            , localLocator(localLocator)
+        {
+            WireFormat::RocksteadyMigrationPriorityReplay::Request* reqHdr =
+                    requestPayload.emplaceAppend<
+                    WireFormat::RocksteadyMigrationPriorityReplay::Request>();
+
+            reqHdr->common.opcode =
+                    WireFormat::RocksteadyMigrationPriorityReplay::opcode;
+            reqHdr->common.service =
+                    WireFormat::RocksteadyMigrationPriorityReplay::service;
+
+            reqHdr->bufferPtr = reinterpret_cast<uintptr_t>(responseBuffer);
+            reqHdr->sideLogPtr = reinterpret_cast<uintptr_t>(sideLog);
+            reqHdr->certificate = certificate;
+        }
+
+        ~RocksteadyPriorityReplayRpc() {}
+
+        void
+        sendReply()
+        {
+            completed = true;
+        }
+
+        string
+        getClientServiceLocator()
+        {
+            return this->localLocator;
+        }
+
+        bool
+        isReady()
+        {
+            return completed;
+        }
+
+      PRIVATE:
+        Tub<RocksteadyHashPartition>* partition;
+
+        Tub<Buffer>* responseBuffer;
+
+        Tub<SideLog>* sideLog;
+
+        bool completed;
+
+        const string localLocator;
+
+        friend class RocksteadyMigration;
+        DISALLOW_COPY_AND_ASSIGN(RocksteadyPriorityReplayRpc);
+    };
+
+    Tub<RocksteadyPriorityReplayRpc> priorityReplayRpc;
 
     Tub<RocksteadyReplayRpc> replayRpcs[MAX_PARALLEL_REPLAY_RPCS];
 

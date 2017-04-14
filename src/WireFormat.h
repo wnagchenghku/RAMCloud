@@ -138,7 +138,8 @@ enum Opcode {
     ROCKSTEADY_TAKE_TABLET_OWNERSHIP = 86,
     ROCKSTEADY_MIGRATION_PRIORITY_HASHES = 87,
     ROCKSTEADY_DROP_SOURCE_TABLET = 88,
-    ILLEGAL_RPC_TYPE            = 89, // 1 + the highest legitimate Opcode
+    ROCKSTEADY_MIGRATION_PRIORITY_REPLAY = 89,
+    ILLEGAL_RPC_TYPE            = 90, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1560,6 +1561,23 @@ struct RocksteadyPrepForMigration {
 
 struct RocksteadyMigrationReplay {
     static const Opcode opcode = ROCKSTEADY_MIGRATION_REPLAY;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        Request() : common(), bufferPtr(), sideLogPtr(), certificate() {}
+
+        RequestCommon common;
+        uintptr_t bufferPtr;
+        uintptr_t sideLogPtr;
+        SegmentCertificate certificate;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        uint64_t numReplayedBytes;
+    } __attribute__((packed));
+};
+
+struct RocksteadyMigrationPriorityReplay {
+    static const Opcode opcode = ROCKSTEADY_MIGRATION_PRIORITY_REPLAY;
     static const ServiceType service = MASTER_SERVICE;
     struct Request {
         Request() : common(), bufferPtr(), sideLogPtr(), certificate() {}

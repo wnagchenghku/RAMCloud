@@ -283,6 +283,12 @@ class MasterService : public Service {
                 const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
                 WireFormat::RocksteadyMigrationReplay::Response* respHdr,
                 Rpc* rpc);
+    void rocksteadyMigrationPriorityReplay(
+                const WireFormat::RocksteadyMigrationPriorityReplay::Request*
+                reqHdr,
+                WireFormat::RocksteadyMigrationPriorityReplay::Response*
+                respHdr,
+                Rpc* rpc);
     void rocksteadyMigrateTablet(
                 const WireFormat::RocksteadyMigrateTablet::Request* reqHdr,
                 WireFormat::RocksteadyMigrateTablet::Response* respHdr,

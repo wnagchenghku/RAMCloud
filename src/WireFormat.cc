@@ -135,6 +135,8 @@ opcodeSymbol(uint32_t opcode)
                                 return "ROCKSTEADY_MIGRATION_PRIORITY_HASHES";
         case ROCKSTEADY_DROP_SOURCE_TABLET:
                                     return "ROCKSTEADY_DROP_SOURCE_TABLET";
+        case ROCKSTEADY_MIGRATION_PRIORITY_REPLAY:
+                                return "ROCKSTEADY_MIGRATION_PRIORITY_REPLAY";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 

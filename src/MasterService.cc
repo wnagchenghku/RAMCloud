@@ -245,6 +245,11 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
             callHandler<WireFormat::RocksteadyMigrationReplay, MasterService,
                         &MasterService::rocksteadyMigrationReplay>(rpc);
             break;
+        case WireFormat::RocksteadyMigrationPriorityReplay::opcode:
+            callHandler<WireFormat::RocksteadyMigrationPriorityReplay,
+                        MasterService,
+                        &MasterService::rocksteadyMigrationPriorityReplay>(rpc);
+            break;
         case WireFormat::RocksteadyMigrateTablet::opcode:
             callHandler<WireFormat::RocksteadyMigrateTablet, MasterService,
                         &MasterService::rocksteadyMigrateTablet>(rpc);
@@ -2314,6 +2319,31 @@ void
 MasterService::rocksteadyMigrationReplay(
         const WireFormat::RocksteadyMigrationReplay::Request* reqHdr,
         WireFormat::RocksteadyMigrationReplay::Response* respHdr,
+        Rpc* rpc)
+{
+    Tub<Buffer>* replayBuffer =
+            reinterpret_cast<Tub<Buffer>*>(reqHdr->bufferPtr);
+    Tub<SideLog>* replaySideLog =
+            reinterpret_cast<Tub<SideLog>*>(reqHdr->sideLogPtr);
+    SegmentCertificate certificate = reqHdr->certificate;
+
+    const uint32_t bufferLength = (*replayBuffer)->size();
+    void* bufferMemory = (*replayBuffer)->getRange(0, bufferLength);
+
+    SegmentIterator segmentIt(bufferMemory, bufferLength, certificate);
+    segmentIt.checkMetadataIntegrity();
+
+    objectManager.replaySegment(replaySideLog->get(), segmentIt);
+
+    respHdr->numReplayedBytes = bufferLength;
+    respHdr->common.status = STATUS_OK;
+    return;
+}
+
+void
+MasterService::rocksteadyMigrationPriorityReplay(
+        const WireFormat::RocksteadyMigrationPriorityReplay::Request* reqHdr,
+        WireFormat::RocksteadyMigrationPriorityReplay::Response* respHdr,
         Rpc* rpc)
 {
     Tub<Buffer>* replayBuffer =
