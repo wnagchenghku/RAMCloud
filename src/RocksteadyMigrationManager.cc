@@ -188,6 +188,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , prepareSourceRpc()
     , getHeadOfLogRpc()
     , takeOwnershipRpc()
+    , priorityLock("priorityLock")
     , waitingPriorityHashes()
     , inProgressPriorityHashes()
     , priorityHashesRequestBuffer()
@@ -221,8 +222,8 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     objectManager = &((context->getMasterService())->objectManager);
 
     // Reserve space for the priority hashes.
-    waitingPriorityHashes.reserve(MAX_PRIORITY_HASHES);
-    inProgressPriorityHashes.reserve(MAX_PRIORITY_HASHES);
+    waitingPriorityHashes.reserve(MAX_PRIORITY_HASHES * 4);
+    inProgressPriorityHashes.reserve(MAX_PRIORITY_HASHES * 4);
 
     // To begin with, all pull rpcs are free.
     for (uint32_t i = 0; i < MAX_PARALLEL_PULL_RPCS; i++) {
@@ -288,37 +289,42 @@ RocksteadyMigration::poll()
 bool
 RocksteadyMigration::addPriorityHash(uint64_t priorityHash)
 {
+    SpinLock::Guard lock(priorityLock);
+
     // First, check if this hash is already part of an in progress priority
     // request. If this is the case, return immediately as this hash should
     // become available to clients shortly.
-    if (std::binary_search(inProgressPriorityHashes.begin(),
-            inProgressPriorityHashes.end(), priorityHash)) {
-        return true;
+    for (auto hash = inProgressPriorityHashes.begin();
+            hash != inProgressPriorityHashes.end(); hash++) {
+        if (*hash == priorityHash) {
+            return true;
+        }
     }
 
-    // If the priority hash was not part of an in progress priority request,
-    // find the position in waitingPriorityHashes at which the hash should
-    // be inserted.
-    auto candidateHash = std::lower_bound(waitingPriorityHashes.begin(),
-            waitingPriorityHashes.end(), priorityHash);
+    // Check the size of waitingPriorityHashes.
+    if (waitingPriorityHashes.size() == 0) {
+        // If empty, just add the hash in here.
+        waitingPriorityHashes.push_back(priorityHash);
+        return true;
+    } else if (waitingPriorityHashes.size() >= MAX_PRIORITY_HASHES) {
+        // Check if the number of buffered priority hashes is lesser than the
+        // threshold. If not, return immediately.
+        return false;
+    }
 
     // Check if the priority hash is already present in waitingPriorityHashes.
     // If present, return immediately as this hash will anyway be sent out on
     // the next priority request.
-    if (candidateHash != waitingPriorityHashes.begin() &&
-            *candidateHash == priorityHash) {
-        return true;
-    }
-
-    // Check if the number of buffered priority hashes is lesser than the
-    // threshold. If not, return immediately.
-    if (waitingPriorityHashes.size() > MAX_PRIORITY_HASHES) {
-        return false;
+    for (auto hash = waitingPriorityHashes.begin();
+            hash != waitingPriorityHashes.end(); hash++) {
+        if (*hash == priorityHash) {
+            return true;
+        }
     }
 
     // Add the priority hash to the list of buffered priority hashes. These
     // hashes will be sent out on the next priority request.
-    waitingPriorityHashes.insert(candidateHash, priorityHash);
+    waitingPriorityHashes.push_back(priorityHash);
 
     return true;
 }
@@ -479,6 +485,8 @@ RocksteadyMigration::pullAndReplay_main()
 __inline __attribute__((always_inline)) int
 RocksteadyMigration::pullAndReplay_priorityHashes()
 {
+    SpinLock::Guard lock(priorityLock);
+
     int workDone = 0;
 
     // If a priority request is in progress, check if it has completed.

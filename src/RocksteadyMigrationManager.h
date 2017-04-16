@@ -182,6 +182,8 @@ class RocksteadyMigration {
 
     static const uint32_t MAX_PRIORITY_HASHES = 16;
 
+    SpinLock priorityLock;
+
     std::vector<uint64_t> waitingPriorityHashes;
 
     std::vector<uint64_t> inProgressPriorityHashes;

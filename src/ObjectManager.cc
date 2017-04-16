@@ -385,7 +385,6 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                 // The tablet is still under migration. Request for a priority
                 // migration and ask the client to retry after some time.
                 {
-                    Dispatch::Lock(context->dispatch);
                     context->rocksteadyMigrationManager->requestPriorityHash(
                             t.tableId, t.startKeyHash, t.endKeyHash,
                             key.getHash());
