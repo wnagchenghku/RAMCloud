@@ -16,6 +16,8 @@
 #include "SideLog.h"
 #include "ShortMacros.h"
 
+#include "RocksteadyMigrationManager.h"
+
 namespace RAMCloud {
 
 /**
@@ -111,6 +113,10 @@ SideLog::commit()
 
     if (segments.empty())
         return;
+
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+    if (totalLiveBytes < 8337408UL) return;
+#endif
 
     // The last segment will still be open. Close it and begin replication.
     LogSegment* lastSegmentAllocated = segments.back();

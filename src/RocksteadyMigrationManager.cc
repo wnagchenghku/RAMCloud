@@ -401,11 +401,35 @@ RocksteadyMigration::prepare()
                     " table %lu from master %lu.", *sourceSafeVersion,
                     startKeyHash, endKeyHash, tableId, sourceServerId.getId());
 
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+            // Create logical partitions on the source's hash table once the
+            // take ownership rpc has returned.
+            for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
+                uint64_t partitionStartHTBucket =
+                        i * (sourceNumHTBuckets / MAX_NUM_PARTITIONS);
+                uint64_t partitionEndHTBucket =
+                        ((i + 1) * (sourceNumHTBuckets /
+                        MAX_NUM_PARTITIONS)) - 1;
+
+                partitions[i].construct(partitionStartHTBucket,
+                        partitionEndHTBucket);
+
+                RAMCLOUD_LOG(ll, "Created hash table partition from"
+                        " bucket %lu to bucket %lu (Migrating tablet [0x%lx,"
+                        " 0x%lx], tableId %lu).", partitionStartHTBucket,
+                        partitionEndHTBucket, startKeyHash, endKeyHash,
+                        tableId);
+            }
+
+            // The destination can now start migrating data.
+            phase = MIGRATING_DATA;
+#else
             // Obtain the head of this master's log in order to initiate
             // ownership transfer.
             getHeadOfLogRpc.construct((context->getMasterService())->serverId,
                     localLocator);
             context->workerManager->handleRpc(getHeadOfLogRpc.get());
+#endif
 
             return 1;
         } else {
@@ -453,6 +477,9 @@ RocksteadyMigration::pullAndReplay_main()
                 startKeyHash, endKeyHash, tableId, migratedMegaBytes,
                 migrationSeconds, migratedMegaBytes / migrationSeconds);
 
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+        phase = TEAR_DOWN;
+#else
         // Need to change tablet state here rather than after sidelog commit.
         // What if a priority hashes request is sent out after migration but
         // before sidelog commit?
@@ -460,6 +487,8 @@ RocksteadyMigration::pullAndReplay_main()
                 TabletManager::ROCKSTEADY_MIGRATING, TabletManager::NORMAL);
 
         phase = SIDELOG_COMMIT;
+#endif
+
         return workDone;
     } // End of STEP-3.
 

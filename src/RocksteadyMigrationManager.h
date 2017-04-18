@@ -31,6 +31,10 @@
 // This will also disable batched priority pulls at the migration manager.
 // #define ROCKSTEADY_SYNC_PRIORITY_HASHES
 
+// Uncomment to retain tablet ownership on the source. This will result in
+// an unsafe protocol, but is useful for testing.
+// #define ROCKSTEADY_SOURCE_OWNS_TABLET
+
 namespace RAMCloud {
 
 // Forward declaration.
