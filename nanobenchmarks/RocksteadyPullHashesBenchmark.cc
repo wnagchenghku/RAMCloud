@@ -75,7 +75,7 @@ class RocksteadyPullHashesBenchmark {
         return;
     }
 
-    double
+    void
     run(size_t numThreads, uint32_t numObjects, uint32_t objectSize)
     {
         service->tabletManager.addTablet(99, 0UL, ~0UL, TabletManager::NORMAL);
@@ -140,16 +140,15 @@ class RocksteadyPullHashesBenchmark {
         double completionTimeSecs = Cycles::toSeconds(migrationStopTS -
                 migrationStartTS);
 
-        // Generate output on stderr (purely for visual purposes).
-        fprintf(stderr, "==================================================\n");
-        fprintf(stderr, "%zu threads and %u Byte objects:\n", numThreads,
+        // Generate output on stdout.
+        fprintf(stdout, "%zu threads and %u Byte objects:\n", numThreads,
                 objectSize);
-        fprintf(stderr, "Pulled: %.2f GB\n", totalPulledBytesGB);
-        fprintf(stderr, "Time: %.2f sec\n", completionTimeSecs);
-        fprintf(stderr, "Throughput: %.2f GB/sec\n", totalPulledBytesGB /
+        fprintf(stdout, "Pulled: %.2f GB\n", totalPulledBytesGB);
+        fprintf(stdout, "Time: %.2f sec\n", completionTimeSecs);
+        fprintf(stdout, "Throughput: %.2f GB/sec\n", totalPulledBytesGB /
                 completionTimeSecs);
 
-        return (totalPulledBytesGB / completionTimeSecs);
+        return;
     }
 
     Context context;
@@ -168,37 +167,48 @@ class RocksteadyPullHashesBenchmark {
 } // namespace RAMCloud
 
 int
-main(void)
+main(int argc, char* argv[])
 {
-    uint32_t numRuns = 10;
-    size_t numThreads[] = { 1, 2, 4, 8 };
+    long int numRuns = 10;
+    std::vector<size_t> numThreads= { 1, 2, 4, 8 };
     // Approximately 3.48 GB of data including log entry headers.
-    uint32_t numObjects[] = { 30400000, 20000000, 11900000, 6550000, 3450000,
-            1775000, 453000 };
-    uint32_t objectSize[] = { 64, 128, 256, 512, 1024, 2048, 8192 };
-    std::vector<double> pullThroughput;
+    std::vector<uint32_t> numObjects = { 30400000, 20000000, 11900000, 6550000,
+            3450000, 1775000, 453000 };
+    std::vector<uint32_t> objectSize = { 64, 128, 256, 512, 1024, 2048, 8192 };
 
-    // First run all tests and save the throughput obtained in each run.
-    for (uint32_t run = 0; run < numRuns; run++) {
-        for (auto nThreads : numThreads) {
-            for (uint32_t i = 0; i < sizeof(numObjects) / sizeof(uint32_t);
-                    i++) {
-                RAMCloud::RocksteadyPullHashesBenchmark rphb("5120", "10%");
-                pullThroughput.push_back(
-                        rphb.run(nThreads, numObjects[i], objectSize[i]));
-            }
+    int arg;
+    while ((arg = getopt(argc, argv, "t:s:r:")) != -1) {
+        switch (arg) {
+        // Number of threads specified on the command line.
+        case 't':
+            numThreads.clear();
+            numThreads.emplace_back(atol(optarg));
+            break;
+
+        // Object size specified on the command line.
+        case 's':
+            objectSize.clear();
+            objectSize.emplace_back(atol(optarg));
+            numObjects.clear();
+            numObjects.emplace_back((3.48 * 1024 * 1024 * 1024) /
+                    (30 + 29 + objectSize[0]));
+            break;
+
+        // Number of runs specified on the command line.
+        case 'r':
+            numRuns = atol(optarg);
+            break;
         }
     }
 
-    // Generate output (for gnuplot/R).
-    uint32_t j = 0;
-    fprintf(stdout, "numThreads objectSize throughput\n");
-    for (uint32_t run = 0; run < numRuns; run++) {
+    // Run all tests.
+    for (long int run = 0; run < numRuns; run++) {
         for (auto nThreads : numThreads) {
-            for (uint32_t i = 0; i < sizeof(numObjects) / sizeof(uint32_t);
-                    i++) {
-                fprintf(stdout, "%zd %u %.2f\n", nThreads, objectSize[i],
-                        pullThroughput[j++]);
+            for (uint32_t i = 0; i < numObjects.size(); i++) {
+                fprintf(stdout, "============================================"
+                        "======\n");
+                RAMCloud::RocksteadyPullHashesBenchmark rphb("8192", "10%");
+                rphb.run(nThreads, numObjects[i], objectSize[i]);
             }
         }
     }
