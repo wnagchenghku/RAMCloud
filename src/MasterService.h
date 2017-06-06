@@ -246,6 +246,9 @@ class MasterService : public Service {
     void prepForMigration(const WireFormat::PrepForMigration::Request* reqHdr,
                 WireFormat::PrepForMigration::Response* respHdr,
                 Rpc* rpc);
+    void putProcedure(const WireFormat::PutProcedure::Request* reqHdr,
+                WireFormat::PutProcedure::Response* respHdr,
+                Rpc* rpc);
     void read(const WireFormat::Read::Request* reqHdr,
                 WireFormat::Read::Response* respHdr,
                 Rpc* rpc);

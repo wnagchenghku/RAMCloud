@@ -462,6 +462,7 @@ INSTALL_INCLUDES := \
     src/SpinLock.h \
     src/Status.h \
     src/TestLog.h \
+    src/TenantId.h \
     src/Transport.h \
     src/Tub.h \
     src/WireFormat.h \

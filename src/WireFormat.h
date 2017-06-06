@@ -130,7 +130,8 @@ enum Opcode {
     TX_REQUEST_ABORT            = 78,
     TX_HINT_FAILED              = 79,
     ECHO                        = 80,
-    ILLEGAL_RPC_TYPE            = 81, // 1 + the highest legitimate Opcode
+    PUT_PROCEDURE               = 81,
+    ILLEGAL_RPC_TYPE            = 82, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -1238,6 +1239,22 @@ struct ProxyPing {
         uint64_t replyNanoseconds;     // Number of nanoseconds it took to get
                                        // the reply. If a timeout occurred, the
                                        // value is -1.
+    } __attribute__((packed));
+};
+
+struct PutProcedure {
+    static const Opcode opcode = PUT_PROCEDURE;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint16_t keyLength;
+        uint64_t tenantId;
+        uint32_t runtimeTypeLength;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
+        bool success;
     } __attribute__((packed));
 };
 

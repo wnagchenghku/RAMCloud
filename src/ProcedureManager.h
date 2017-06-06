@@ -3,15 +3,6 @@
 
 namespace RAMCloud {
 
-class TenantId {
-  public:
-    TenantId();
-    ~TenantId();
-
-  private:
-    uint64_t id;
-};
-
 class ProcedureManager {
   public:
     ProcedureManager();

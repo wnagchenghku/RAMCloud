@@ -3015,4 +3015,47 @@ WriteRpc::wait(uint64_t* version)
         ClientException::throwException(HERE, respHdr->common.status);
 }
 
+bool
+RamCloud::putProcedure(uint64_t tableId, const void* key, uint16_t keyLength,
+        TenantId tenantId, const void* runtimeType, uint32_t runtimeTypeLength,
+        Buffer* procedure)
+{
+    PutProcedureRpc rpc(this, tableId, key, keyLength, tenantId, runtimeType,
+            runtimeTypeLength, procedure);
+
+    return rpc.wait();
+}
+
+PutProcedureRpc::PutProcedureRpc(RamCloud* ramcloud, uint64_t tableId,
+        const void* key, uint16_t keyLength, TenantId tenantId,
+        const void* runtimeType, uint32_t runtimeTypeLength, Buffer* procedure)
+    : LinearizableObjectRpcWrapper(ramcloud, false, tableId, key, keyLength,
+            sizeof(WireFormat::PutProcedure::Response))
+{
+    WireFormat::PutProcedure::Request* reqHdr(
+            allocHeader<WireFormat::PutProcedure>());
+
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->tenantId = tenantId.getId();
+    reqHdr->runtimeTypeLength = runtimeTypeLength;
+
+    request.append(key, keyLength);
+    request.append(runtimeType, runtimeTypeLength);
+    request.append(procedure);
+
+    send();
+}
+
+bool
+PutProcedureRpc::wait()
+{
+    waitInternal(context->dispatch);
+
+    const WireFormat::PutProcedure::Response* respHdr(
+            getResponseHeader<WireFormat::PutProcedure>());
+
+    return respHdr->success;
+}
+
 }  // namespace RAMCloud

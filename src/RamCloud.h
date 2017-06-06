@@ -28,6 +28,8 @@
 #include "ServerConfig.pb.h"
 #include "ServerStatistics.pb.h"
 
+#include "TenantId.h"
+
 namespace RAMCloud {
 class ClientLeaseAgent;
 class ClientTransactionManager;
@@ -160,6 +162,9 @@ class RamCloud {
     void write(uint64_t tableId, uint8_t numKeys, KeyInfo *keyInfo,
             const char* value, const RejectRules* rejectRules = NULL,
             uint64_t* version = NULL, bool async = false);
+    bool putProcedure(uint64_t tableId, const void* key, uint16_t keyLength,
+            TenantId tenantId, const void* runtimeType,
+            uint32_t runtimeTypeLength, Buffer* procedure);
 
     void poll();
     explicit RamCloud(CommandLineOptions* options);
@@ -1046,6 +1051,22 @@ class WriteRpc : public LinearizableObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(WriteRpc);
+};
+
+/**
+ * Encapsulates the state of a RamCloud::putProcedure operation,
+ * allowing it to execute asynchronously.
+ */
+class PutProcedureRpc : public LinearizableObjectRpcWrapper {
+  public:
+    PutProcedureRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
+            uint16_t keyLength, TenantId tenantId, const void* runtimeType,
+            uint32_t runtimeTypeLength, Buffer* procedure);
+    ~PutProcedureRpc() {}
+    bool wait();
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(PutProcedureRpc);
 };
 
 } // namespace RAMCloud

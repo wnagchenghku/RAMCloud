@@ -41,6 +41,8 @@
 #include "WallTime.h"
 #include "WorkerManager.h"
 
+#include "TenantId.h"
+
 namespace RAMCloud {
 
 // struct MasterService::Replica
@@ -201,6 +203,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::PrepForMigration::opcode:
             callHandler<WireFormat::PrepForMigration, MasterService,
                         &MasterService::prepForMigration>(rpc);
+            break;
+        case WireFormat::PutProcedure::opcode:
+            callHandler<WireFormat::PutProcedure, MasterService,
+                        &MasterService::putProcedure>(rpc);
             break;
         case WireFormat::Read::opcode:
             callHandler<WireFormat::Read, MasterService,
@@ -1703,6 +1709,35 @@ MasterService::prepForMigration(
         respHdr->common.status = STATUS_OBJECT_EXISTS;
         return;
     }
+}
+
+void
+MasterService::putProcedure(const WireFormat::PutProcedure::Request* reqHdr,
+        WireFormat::PutProcedure::Response* respHdr,
+        Rpc* rpc)
+{
+    uint64_t tableId = reqHdr->tableId;
+    uint16_t keyLength = reqHdr->keyLength;
+    TenantId tenantId(reqHdr->tenantId);
+    uint32_t runtimeTypeLength = reqHdr->runtimeTypeLength;
+
+    Buffer* request = rpc->requestPayload;
+    uint32_t reqHdrLength = sizeof32(WireFormat::PutProcedure::Request);
+    void* key = request->getRange(reqHdrLength, keyLength);
+    void* runtimeType = request->getRange(reqHdrLength + keyLength,
+                        runtimeTypeLength);
+
+    // TODO: Get a pointer to the procedure.
+
+    LOG(NOTICE, "Tenant %lu added a stored procedure (key %s) of type"
+            " %s to table %lu. Rpc handled on worker %d.", tenantId.getId(),
+            reinterpret_cast<char*>(key),
+            reinterpret_cast<char*>(runtimeType),
+            tableId,
+            rpc->worker->threadId);
+
+    respHdr->common.status = STATUS_OK;
+    respHdr->success = true;
 }
 
 /**

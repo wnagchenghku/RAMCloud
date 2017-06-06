@@ -4226,6 +4226,16 @@ TEST_F(MasterServiceTest, MigrationMonitor_longRunningMigration) {
     Cycles::mockTscValue = 0;
 }
 
+TEST_F(MasterServiceTest, putProcedure_basic) {
+    service->tabletManager.addTablet(99, 0UL, ~0UL, TabletManager::NORMAL);
+
+    Buffer procedure;
+    bool success = ramcloud->putProcedure(99, "00", 2, TenantId(1), "native",
+            6, &procedure);
+
+    EXPECT_TRUE(success);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /////Recovery related tests. This should eventually move into its own file.////
 ///////////////////////////////////////////////////////////////////////////////

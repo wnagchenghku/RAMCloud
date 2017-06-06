@@ -122,6 +122,7 @@ opcodeSymbol(uint32_t opcode)
         case TX_REQUEST_ABORT:             return "TX_REQUEST_ABORT";
         case TX_HINT_FAILED:               return "TX_HINT_FAILED";
         case ECHO:                         return "ECHO";
+        case PUT_PROCEDURE:                return "PUT_PROCEDURE";
         case ILLEGAL_RPC_TYPE:             return "ILLEGAL_RPC_TYPE";
     }
 
