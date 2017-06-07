@@ -145,8 +145,8 @@ class RocksteadyPullHashesBenchmark {
                 objectSize);
         fprintf(stdout, "Pulled: %.2f GB\n", totalPulledBytesGB);
         fprintf(stdout, "Time: %.2f sec\n", completionTimeSecs);
-        fprintf(stdout, "Throughput: %.2f GB/sec\n", totalPulledBytesGB /
-                completionTimeSecs);
+        fprintf(stdout, "Throughput: %.2f MB/sec\n", (totalPulledBytesGB *
+                1024) / completionTimeSecs);
 
         return;
     }
