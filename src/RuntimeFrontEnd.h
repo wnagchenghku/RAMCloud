@@ -1,6 +1,11 @@
 #ifndef RAMCLOUD_RUNTIMEFRONTEND_H
 #define RAMCLOUD_RUNTIMEFRONTEND_H
 
+#include "Util.h"
+#include "Buffer.h"
+
+#include "TenantId.h"
+
 namespace RAMCloud {
 
 class RuntimeFrontEnd {
@@ -15,7 +20,7 @@ class RuntimeFrontEnd {
         Binding();
 
       public:
-        ~Binding();
+        virtual ~Binding() {}
 
         virtual bool invoke();
 
@@ -28,7 +33,7 @@ class RuntimeFrontEnd {
 
         Buffer* response;
 
-        DISALLOW_COPY_AND_ASSIGN(RuntimeFrontEnd);
+        DISALLOW_COPY_AND_ASSIGN(Binding);
     };
 
     virtual Binding getBinding(Key key, TenantId tenantId, Buffer* request,
@@ -37,7 +42,7 @@ class RuntimeFrontEnd {
     virtual void invokeBinding(Binding* binding);
 
   private:
-    RuntimeBackEnd* backend;
+    //RuntimeBackEnd* backend;
     DISALLOW_COPY_AND_ASSIGN(RuntimeFrontEnd);
 };
 

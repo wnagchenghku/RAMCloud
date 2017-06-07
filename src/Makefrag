@@ -125,6 +125,7 @@ SHARED_SRCFILES := \
 		   src/PerfStats.cc \
 		   src/PortAlarm.cc \
 		   src/PreparedOp.cc \
+		   src/ProcedureManager.cc \
 		   src/RamCloud.cc \
 		   src/RawMetrics.cc \
 		   src/ReplicaManager.cc \

@@ -26,6 +26,8 @@
 #include "TimeTrace.h"
 #include "PerfStats.h"
 
+#include "ProcedureManager.h"
+
 namespace RAMCloud {
 
 /**
@@ -143,6 +145,8 @@ class Worker {
                                        /// the worker has been finished and a
                                        /// response sent (but the worker may
                                        /// still be in POSTPROCESSING state).
+    ProcedureManager procedureManager; /// Manager to install and invoke stored
+                                       /// procedures.
   PRIVATE:
     int busyIndex;                     /// Location of this worker in
                                        /// #busyThreads, or -1 if this worker
@@ -191,6 +195,7 @@ class Worker {
             , opcode(WireFormat::Opcode::ILLEGAL_RPC_TYPE)
             , level(0)
             , rpc(NULL)
+            , procedureManager()
             , busyIndex(-1)
             , state(POLLING)
             , exited(false),
