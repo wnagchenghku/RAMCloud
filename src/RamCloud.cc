@@ -2034,13 +2034,13 @@ ReadRpc::wait(uint64_t* version)
     if (version != NULL)
         *version = respHdr->version;
 
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
-
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
     assert(respHdr->length == response->size());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 /**
@@ -2100,13 +2100,13 @@ ReadKeysAndValueRpc::wait(uint64_t* version)
     if (version != NULL)
         *version = respHdr->version;
 
-    if (respHdr->common.status != STATUS_OK)
-        ClientException::throwException(HERE, respHdr->common.status);
-
     // Truncate the response Buffer so that it consists of nothing
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
     assert(respHdr->length == response->size());
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
 }
 
 /**
