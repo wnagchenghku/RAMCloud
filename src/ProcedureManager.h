@@ -18,19 +18,17 @@ class ProcedureManager {
     ProcedureManager();
     ~ProcedureManager();
 
-    bool installProcedure(uint64_t tableId, Key key, TenantId tenantId,
+    void installProcedure(uint64_t tableId, Key key, TenantId tenantId,
             std::string runtimeType, Buffer* procedure);
-
-    bool verifyProcedure(uint64_t tableId, Key key, TenantId tenantId,
-            std::string runtimeType, Buffer* out=NULL);
-
-    bool invokeProcedure(uint64_t tableId, Key key, TenantId tenantId,
+    void invokeProcedure(uint64_t tableId, Key key, TenantId tenantId,
             std::string runtimeType, Buffer* clientResponse,
             Buffer* binary=NULL);
 
-    bool registerRuntime(std::string runtimeType);
-
   private:
+    void verifyProcedure(uint64_t tableId, Key key, TenantId tenantId,
+            std::string runtimeType, Buffer* out=NULL);
+    void registerRuntime(std::string runtimeType);
+
     std::unordered_map<std::string, RuntimeFrontEnd*> runtimes;
     DISALLOW_COPY_AND_ASSIGN(ProcedureManager);
 };
