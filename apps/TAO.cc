@@ -396,6 +396,12 @@ class TAO {
   }
 #endif
 
+    void reset() {
+        client->dropTable("objects");
+        client->dropTable("assocs");
+        initialize();
+    }
+
   private:
     /**
      * Create needed tables on RAMCloud for TAO.
@@ -417,19 +423,55 @@ class TAO {
     Id nextId;
 };
 
-class TAOTest
-{
+class TAOTest {
   public:
     TAOTest(RamCloud* client)
         : tao{client}
     {}
 
-    void runAll() {
-        test_objectAdd();
+    ~TAOTest()
+    {
+        tao.reset();
+    }
+
+    static void runAll(RamCloud* client) {
+        void (TAOTest::* tests[])(void) = {
+            &TAOTest::test_objectAdd,
+            &TAOTest::test_assocAdd,
+        };
+        for (auto test : tests) {
+            printf("- Test start -\n");
+            TAOTest t{client};
+            (t.*test)();
+            printf("- Test end -\n");
+        }
         printf("--- Tests complete ---\n");
     }
 
     void test_objectAdd() {
+        Buffer kvpairs{};
+        const char* test = "test";
+        kvpairs.append(test, uint32_t(strlen(test)));
+
+        TAO::Id id1 = tao.objectAdd(0x0b, kvpairs);
+        assert(id1 == 1);
+
+        kvpairs.append("2", 1);
+        TAO::Id id2 = tao.objectAdd(0x0b, kvpairs);
+        assert(id2 == 2);
+
+        kvpairs.reset();
+        TAO::OType otype = tao.objectGet(id1, kvpairs);
+        assert(otype == 0x0b);
+        assert(kvpairs.size() == 4);
+        assert(strcmp(static_cast<char*>(kvpairs.getRange(0, 4)), "test") == 0);
+
+        otype = tao.objectGet(id2, kvpairs);
+        assert(otype == 0x0b);
+        assert(strcmp(static_cast<char*>(kvpairs.getRange(0, 5)), "test2"));
+    }
+
+    void test_assocAdd() {
         Buffer kvpairs{};
 
         TAO::Id id1 = tao.objectAdd(0x0b, kvpairs);
@@ -439,6 +481,11 @@ class TAOTest
         assert(id2 == 2);
 
         tao.assocAdd(1, 0x45, 2, 10, kvpairs);
+
+        TAO::Id id2set[1] = { 2 };
+        tao.assocGet(1, 0x45,
+                     id2set, sizeof(id2set)/sizeof(id2set[0]),
+                     kvpairs);
     }
 
   private:
@@ -472,8 +519,7 @@ try
     OptionParser optionParser(clientOptions, argc, argv);
     RamCloud client(&optionParser.options);
 
-    TAOTest t{&client};
-    t.runAll();
+    TAOTest::runAll(&client);
 
     return 0;
 } catch (RAMCloud::ClientException& e) {
