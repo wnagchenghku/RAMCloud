@@ -75,6 +75,8 @@ CLIENT_SRCFILES := \
 		   src/MultiWrite.cc \
 		   src/MurmurHash3.cc \
 		   src/NetUtil.cc \
+		   src/NativeBackEnd.cc \
+		   src/NativeFrontEnd.cc \
 		   src/Object.cc \
 		   src/ObjectBuffer.cc \
 		   src/ObjectFinder.cc \

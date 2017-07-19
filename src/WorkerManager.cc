@@ -97,6 +97,8 @@ WorkerManager::WorkerManager(Context* context, uint32_t maxCores)
     , rpcsWaiting(0)
     , testingSaveRpcs(0)
     , testRpcs()
+    , runtimeBackendsLock("runtimeBackendsLock")
+    , runtimeBackends()
 {
     levels.resize(RpcLevel::maxLevel() + 1);
 
@@ -111,10 +113,16 @@ WorkerManager::WorkerManager(Context* context, uint32_t maxCores)
     // scheduling a thread can cause timeouts.
 
     for (int i = maxCores + RpcLevel::maxLevel(); i > 0; i--) {
-        Worker* worker = new Worker(context);
+        Worker* worker = new Worker(context, &runtimeBackendsLock,
+                &runtimeBackends);
         worker->thread.construct(workerMain, worker);
         idleThreads.push_back(worker);
     }
+
+    // Reserve space for upto 16 backends upfront. We will probably never
+    // have more than 16 runtimes running simultaneously within a single
+    // RAMCloud master.
+    runtimeBackends.reserve(16);
 }
 
 /**

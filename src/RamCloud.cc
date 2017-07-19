@@ -3058,4 +3058,34 @@ PutProcedureRpc::wait()
     return respHdr->success;
 }
 
+void
+RamCloud::getProcedure(uint64_t tableId, const void* key, uint16_t keyLength,
+        TenantId tenantId, const void* runtimeType, uint32_t runtimeTypeLength,
+        Buffer* response)
+{
+    GetProcedureRpc rpc(this, tableId, key, keyLength, tenantId, runtimeType,
+            runtimeTypeLength, response);
+    rpc.wait();
+}
+
+GetProcedureRpc::GetProcedureRpc(RamCloud* ramcloud, uint64_t tableId,
+        const void* key, uint16_t keyLength, TenantId tenantId,
+        const void* runtimeType, uint32_t runtimeTypeLength, Buffer* response)
+    : LinearizableObjectRpcWrapper(ramcloud, false, tableId, key, keyLength,
+            sizeof(WireFormat::GetProcedure::Response), response)
+{
+    WireFormat::GetProcedure::Request* reqHdr(
+            allocHeader<WireFormat::GetProcedure>());
+
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->tenantId = tenantId.getId();
+    reqHdr->runtimeTypeLength = runtimeTypeLength;
+
+    request.append(key, keyLength);
+    request.append(runtimeType, runtimeTypeLength);
+
+    send();
+}
+
 }  // namespace RAMCloud

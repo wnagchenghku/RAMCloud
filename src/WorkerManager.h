@@ -26,6 +26,7 @@
 #include "TimeTrace.h"
 #include "PerfStats.h"
 
+#include "RuntimeBackEnd.h"
 #include "ProcedureManager.h"
 
 namespace RAMCloud {
@@ -106,6 +107,10 @@ class WorkerManager : Dispatch::Poller {
     // Used for testing: if testingSaveRpcs is set, incoming RPCs are
     // queued here, not sent to workers.
     std::queue<Transport::ServerRpc*> testRpcs;
+
+    SpinLock runtimeBackendsLock;
+
+    BackendMap runtimeBackends;
 
     static void workerMain(Worker* worker);
     static Syscall *sys;
@@ -188,14 +193,15 @@ class Worker {
     bool exited;                       /// True means the worker is no longer
                                        /// running.
 
-    explicit Worker(Context* context)
+    explicit Worker(Context* context, SpinLock* runtimeBackendsLock=NULL,
+            BackendMap* runtimeBackends=NULL)
             : context(context)
             , thread()
             , threadId(0)
             , opcode(WireFormat::Opcode::ILLEGAL_RPC_TYPE)
             , level(0)
             , rpc(NULL)
-            , procedureManager()
+            , procedureManager(runtimeBackendsLock, runtimeBackends)
             , busyIndex(-1)
             , state(POLLING)
             , exited(false),

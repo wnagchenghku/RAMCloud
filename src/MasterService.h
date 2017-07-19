@@ -168,6 +168,9 @@ class MasterService : public Service {
     void getLogMetrics(const WireFormat::GetLogMetrics::Request* reqHdr,
                 WireFormat::GetLogMetrics::Response* respHdr,
                 Rpc* rpc);
+    void getProcedure(const WireFormat::GetProcedure::Request* reqHdr,
+                WireFormat::GetProcedure::Response* respHdr,
+                Rpc* rpc);
     void getServerStatistics(
                 const WireFormat::GetServerStatistics::Request* reqHdr,
                 WireFormat::GetServerStatistics::Response* respHdr,

@@ -15,6 +15,9 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <cstdio>
+#include <cstdlib>
+#include <dlfcn.h>
 
 #include "Buffer.h"
 #include "ClientException.h"
@@ -42,6 +45,7 @@
 #include "WorkerManager.h"
 
 #include "TenantId.h"
+#include "ProcedureManager.h"
 
 namespace RAMCloud {
 
@@ -159,6 +163,10 @@ MasterService::dispatch(WireFormat::Opcode opcode, Rpc* rpc)
         case WireFormat::GetLogMetrics::opcode:
             callHandler<WireFormat::GetLogMetrics, MasterService,
                         &MasterService::getLogMetrics>(rpc);
+            break;
+        case WireFormat::GetProcedure::opcode:
+            callHandler<WireFormat::GetProcedure, MasterService,
+                        &MasterService::getProcedure>(rpc);
             break;
         case WireFormat::GetServerStatistics::opcode:
             callHandler<WireFormat::GetServerStatistics, MasterService,
@@ -499,6 +507,37 @@ MasterService::getLogMetrics(
     objectManager.getLog()->getMetrics(logMetrics);
     respHdr->logMetricsLength = ProtoBuf::serializeToResponse(
             rpc->replyPayload, &logMetrics);
+}
+
+void
+MasterService::getProcedure(
+        const WireFormat::GetProcedure::Request* reqHdr,
+        WireFormat::GetProcedure::Response* respHdr,
+        Rpc* rpc)
+{
+    uint64_t tableId = reqHdr->tableId;
+    uint16_t keyLength = reqHdr->keyLength;
+    TenantId tenantId(reqHdr->tenantId);
+    uint32_t runtimeTypeLength = reqHdr->runtimeTypeLength;
+
+    Buffer* request = rpc->requestPayload;
+
+    // Retrieve the key for the procedure.
+    uint32_t offset = sizeof32(WireFormat::GetProcedure::Request);
+    Key key(tableId, request->getRange(offset, keyLength), keyLength);
+
+    // Retrieve the runtime type so that the procedure can be invoked.
+    offset += keyLength;
+    void* runtimeType = request->getRange(offset, runtimeTypeLength);
+    std::string runtimeTypeStr(reinterpret_cast<char*>(runtimeType),
+            runtimeTypeLength);
+
+    // Handoff to the procedure manager.
+    (rpc->worker->procedureManager).invokeProcedure(tableId, key, tenantId,
+            ProcedureManager::getRuntimeTypeFromString(runtimeTypeStr),
+            rpc->replyPayload);
+
+    respHdr->common.status = STATUS_OK;
 }
 
 /**
@@ -1722,19 +1761,25 @@ MasterService::putProcedure(const WireFormat::PutProcedure::Request* reqHdr,
     uint32_t runtimeTypeLength = reqHdr->runtimeTypeLength;
 
     Buffer* request = rpc->requestPayload;
-    uint32_t reqHdrLength = sizeof32(WireFormat::PutProcedure::Request);
-    void* key = request->getRange(reqHdrLength, keyLength);
-    void* runtimeType = request->getRange(reqHdrLength + keyLength,
-                        runtimeTypeLength);
 
-    // TODO: Get a pointer to the procedure.
+    // Retrieve the key for the procedure.
+    uint32_t offset = sizeof32(WireFormat::PutProcedure::Request);
+    Key key(tableId, request->getRange(offset, keyLength), keyLength);
 
-    LOG(NOTICE, "Tenant %lu added a stored procedure (key %s) of type"
-            " %s to table %lu. Rpc handled on worker %d.", tenantId.getId(),
-            reinterpret_cast<char*>(key),
-            reinterpret_cast<char*>(runtimeType),
-            tableId,
-            rpc->worker->threadId);
+    // Retrieve the runtime type so that the procedure can be installed.
+    offset += keyLength;
+    void* runtimeType = request->getRange(offset, runtimeTypeLength);
+    std::string runtimeTypeStr(reinterpret_cast<char*>(runtimeType),
+            runtimeTypeLength);
+
+    // Retrieve the procedure.
+    Buffer procedure;
+    offset += runtimeTypeLength;
+    procedure.appendExternal(request, offset, request->size() - offset);
+
+    (rpc->worker->procedureManager).installProcedure(tableId, key, tenantId,
+            ProcedureManager::getRuntimeTypeFromString(runtimeTypeStr),
+            &procedure);
 
     respHdr->common.status = STATUS_OK;
     respHdr->success = true;

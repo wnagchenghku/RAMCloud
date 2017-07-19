@@ -805,6 +805,7 @@ simple_tests = [
     Test("echo_incast", echo),
     Test("multiRead_colocation", default),
     Test("netBandwidth", netBandwidth),
+    Test("pushNativeProcedure", default),
     Test("readAllToAll", readAllToAll),
     Test("readNotFound", default),
 ]

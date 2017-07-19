@@ -44,6 +44,7 @@
 #include <algorithm>
 #include <iostream>
 #include <unordered_set>
+#include <cerrno>
 namespace po = boost::program_options;
 
 #include "BasicTransport.h"
@@ -5585,6 +5586,51 @@ netBandwidth()
             "slowest client");
 }
 
+// A single client pushes a pre-compiled C++ binary into RAMCloud and, then
+// invokes the stored procedure.
+void
+pushNativeProcedure()
+{
+    // XXX: Currently creating a table of procedures from the client.
+    // Ideally, this table should not be visible to clients.
+    uint64_t tableId = cluster->createTable("__procedureTable");
+
+    int fd = open("/home/chinmayk/Utah-SCS/RAMCloud/obj.sandstorm/apps/"
+            "NativeC++Procedure", O_RDONLY);
+    if (fd < 0) {
+        int error = errno;
+        RAMCLOUD_LOG(ERROR, "Failed to open Native-procedure for push-down."
+                " Errno: %d.", error);
+        return;
+    }
+
+#define READ_SIZE 1024
+    char buffer[READ_SIZE]; // To read from the binary file.
+    ssize_t readBytes = 0;
+    Buffer procedureBuffer;
+
+    // Read from the compiled binary into a RAMCloud Buffer.
+    do {
+        memset(buffer, '\0', READ_SIZE);
+        if ((readBytes = read(fd, buffer, READ_SIZE)) == 0) {
+            break;
+        }
+
+        procedureBuffer.appendCopy(buffer, downCast<uint32_t>(readBytes));
+    } while (true);
+#undef READ_SIZE
+
+    bool status = cluster->putProcedure(tableId, "proc1", 5, TenantId(0),
+            "native", 6, &procedureBuffer);
+    if (!status) {
+        RAMCLOUD_LOG(ERROR, "Failed to push native procedure into RAMCloud");
+    }
+
+    Buffer response;
+    cluster->getProcedure(tableId, "proc1", 5, TenantId(0), "native", 6,
+            &response);
+}
+
 // Each client reads a single object from each master.  Good for
 // testing that each host in the cluster can send/receive RPCs
 // from every other host.
@@ -6890,6 +6936,7 @@ TestInfo tests[] = {
     {"multiWrite_oneMaster", multiWrite_oneMaster},
     {"multiReadThroughput", multiReadThroughput},
     {"netBandwidth", netBandwidth},
+    {"pushNativeProcedure", pushNativeProcedure},
     {"readAllToAll", readAllToAll},
     {"readDist", readDist},
     {"readDistRandom", readDistRandom},

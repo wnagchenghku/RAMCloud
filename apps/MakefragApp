@@ -28,6 +28,10 @@ $(APPOBJDIR)/migrateTablet: $(APPOBJDIR)/MigrateTabletMain.o $(OBJDIR)/OptionPar
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
 
+$(APPOBJDIR)/NativeC++Procedure: $(APPOBJDIR)/NativeC++Procedure.o
+	@mkdir -p $(@D)
+	$(CXX) $(LDFLAGS) -shared -o $@ $^ -L$(OBJDIR) $(LIBS)
+
 $(APPOBJDIR)/recovery: $(APPOBJDIR)/RecoveryMain.o $(OBJDIR)/OptionParser.o $(OBJDIR)/libramcloud.a
 	@mkdir -p $(@D)
 	$(CXX) $(LDFLAGS) -o $@ $^ -L$(OBJDIR) $(LIBS)
@@ -44,6 +48,7 @@ apps: $(APPOBJDIR)/backuprecovery \
       $(APPOBJDIR)/CoordinatorCrashRecovery \
       $(APPOBJDIR)/ensureServers \
       $(APPOBJDIR)/migrateTablet \
+      $(APPOBJDIR)/NativeC++Procedure \
       $(APPOBJDIR)/recovery \
       $(NULL)
 

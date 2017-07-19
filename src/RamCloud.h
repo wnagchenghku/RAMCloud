@@ -165,6 +165,9 @@ class RamCloud {
     bool putProcedure(uint64_t tableId, const void* key, uint16_t keyLength,
             TenantId tenantId, const void* runtimeType,
             uint32_t runtimeTypeLength, Buffer* procedure);
+    void getProcedure(uint64_t tableId, const void* key, uint16_t keyLength,
+            TenantId tenantId, const void* runtimeType,
+            uint32_t runtimeTypeLength, Buffer* response);
 
     void poll();
     explicit RamCloud(CommandLineOptions* options);
@@ -1067,6 +1070,18 @@ class PutProcedureRpc : public LinearizableObjectRpcWrapper {
 
   PRIVATE:
     DISALLOW_COPY_AND_ASSIGN(PutProcedureRpc);
+};
+
+class GetProcedureRpc : public LinearizableObjectRpcWrapper {
+  public:
+    GetProcedureRpc(RamCloud* ramcloud, uint64_t tableId, const void* key,
+            uint16_t keyLength, TenantId tenantId, const void* runtimeType,
+            uint32_t runtimeTypeLength, Buffer* response);
+    ~GetProcedureRpc() {}
+    void wait() { simpleWait(context); }
+
+  PRIVATE:
+    DISALLOW_COPY_AND_ASSIGN(GetProcedureRpc);
 };
 
 } // namespace RAMCloud

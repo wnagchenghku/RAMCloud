@@ -131,7 +131,8 @@ enum Opcode {
     TX_HINT_FAILED              = 79,
     ECHO                        = 80,
     PUT_PROCEDURE               = 81,
-    ILLEGAL_RPC_TYPE            = 82, // 1 + the highest legitimate Opcode
+    GET_PROCEDURE               = 82,
+    ILLEGAL_RPC_TYPE            = 83, // 1 + the highest legitimate Opcode
 };
 
 /**
@@ -736,6 +737,21 @@ struct GetMetrics {
                                    // header.
         // Variable-length byte string containing ProtoBuf::MetricList
         // follows.
+    } __attribute__((packed));
+};
+
+struct GetProcedure {
+    static const Opcode opcode = GET_PROCEDURE;
+    static const ServiceType service = MASTER_SERVICE;
+    struct Request {
+        RequestCommon common;
+        uint64_t tableId;
+        uint16_t keyLength;
+        uint64_t tenantId;
+        uint32_t runtimeTypeLength;
+    } __attribute__((packed));
+    struct Response {
+        ResponseCommon common;
     } __attribute__((packed));
 };
 
