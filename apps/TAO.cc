@@ -16,23 +16,31 @@
 #include "ClientException.h"
 #include "OptionParser.h"
 #include "RamCloud.h"
+#include "Util.h"
 
 using namespace RAMCloud;
 
 // TODO
 // - Need something like htonl on ids.
 
-//#define log printf
-#define log noLog
+#define log(F, ...) fprintf(stderr, F, __VA_ARGS__);
+//#define log noLog
 
 void noLog(const char* format, ...) {}
 
-static constexpr char const* nextIdKey = "__nextId";
+void hexDumpBuffer(Buffer* buffer) {
+    uint32_t l = buffer->size();
+    fprintf(stderr, "%s\n",
+            Util::hexDump(buffer->getRange(0, l), l).c_str());
+}
 
 size_t constexpr static_strlen(const char* str)
 {
     return *str ? 1 + static_strlen(str + 1) : 0;
 }
+
+
+static constexpr char const* nextIdKey = "__nextId";
 
 class TAO {
   public:
@@ -52,7 +60,7 @@ class TAO {
     } __attribute__((__packed__));;
 
     struct AssocList {
-      private:
+      public: // PRIVATE
         struct Assoc {
             Assoc()
                 : id{}
@@ -73,7 +81,7 @@ class TAO {
         } __attribute__((__packed__));
 
         Assoc& at(uint32_t i) {
-            return *buffer->getOffset<Assoc>(i);
+            return *buffer->getOffset<Assoc>(i * uint32_t(sizeof(Assoc)));
         }
 
       public:
@@ -114,21 +122,33 @@ class TAO {
             }
         }
 
+        void dump() {
+            fprintf(stderr, "AssocList with %u elements\n", size());
+            for (uint32_t i = 0; i < size(); ++i) {
+                fprintf(stderr, "  Id %lu Time %u\n", at(i).id, at(i).time);
+            }
+        }
+
         /**
          * \param id2s
-         *      A set of Ids to test for in this lists. Ids are rearranged
+         *      A set of Ids to test for in this list. Ids are rearranged
          *      within this array, and the value at \a nId2s is adjusted
          *      to describe which prefix of the values in the array are
          *      represented in this list.
          */
         void filter(Id* id2s, uint32_t* nId2s) {
             for (uint32_t j = 0; j < *nId2s; ++j) {
+                bool match = false;
                 for (uint32_t i = 0; i < size(); ++i) {
+                    log("Comparing %lu and %lu ids\n", at(i).id, id2s[j]);
                     if (id2s[j] == at(i).id) {
-                        std::swap(id2s[j], id2s[*nId2s - 1]);
-                        --(*nId2s);
+                        match = true;
                         break;
                     }
+                }
+                if (!match) {
+                    std::swap(id2s[j], id2s[*nId2s - 1]);
+                    --(*nId2s);
                 }
             }
             return;
@@ -231,6 +251,7 @@ class TAO {
            RejectRules rejectRules{0, 0, 0, 0, 0};
            rejectRules.exists = 1;
            AssocKey kvpairsKey{id1, atype, id2};
+           log("write assoc %lu - %u - %lu\n", id1, atype, id2);
            client->write(assocTableId,
                          &kvpairsKey, downCast<uint16_t>(sizeof(kvpairsKey)),
                          kvpairs.getRange(0, kvpairs.size()),
@@ -239,7 +260,7 @@ class TAO {
             // Should we have retrys on dangling adds?
             // Probably not... Technically no one should try to add the same
             // assoc edge twice. And a fsck process should clean up dangling
-            // edges.
+            // edges from clients that have died.
             throw;
          }
 
@@ -256,7 +277,6 @@ class TAO {
             } catch (RejectRulesException& e) {
                 assert(value.size() == 0);
                 // Empty buffer is implicity an empty AssocList.
-                return;
             }
 
             AssocList list{&value};
@@ -270,10 +290,12 @@ class TAO {
                 } else {
                     rejectRules.doesntExist = 1;
                 }
+                log("write assoc %lu - %u - *\n", id1, atype);
                 client->write(assocTableId,
                               &akey, downCast<uint16_t>(sizeof(akey)),
                               value.getRange(0, value.size()), value.size(),
                               &rejectRules);
+                break;
             } catch (RejectRulesException& e) {
                 // Something changed in the assoc list so start over.
                 continue;
@@ -339,9 +361,13 @@ class TAO {
     /**
      * assoc_get(id1, atype, id2set): returns all of the associations (id1,
      * atype, id2) and their time and data, where id2 in id2set.
+     *
+     * \a values must be an array with at least \a nId2set entries. On
+     * return \a nId2set will indicate the number of valid values in
+     * \a values.
      */
-    void assocGet(Id id1, AType atype, Id* id2set, uint32_t nId2set,
-                  Buffer& kvpairs)
+    void assocGet(Id id1, AType atype, Id* id2set, uint32_t* nId2set,
+                  Tub<ObjectBuffer>* kvpairs)
     {
         Buffer value{};
         uint64_t readVersion = 0;
@@ -356,27 +382,28 @@ class TAO {
                          &rejectRules, &readVersion);
         } catch (RejectRulesException& e) {
             // No assoc list so nothing to get.
+            *nId2set = 0;
             return;
         }
 
         assert(value.size() > 0);
         AssocList list{&value};
-        list.filter(id2set, &nId2set);
+        list.filter(id2set, nId2set);
 
-        MultiReadObject requestObjects[nId2set];
-        MultiReadObject* requests[nId2set];
-        Tub<ObjectBuffer> values[nId2set]; // XXX Pry pass in?
-        AssocKey keys[nId2set];
+        MultiReadObject requestObjects[*nId2set];
+        MultiReadObject* requests[*nId2set];
+        AssocKey keys[*nId2set];
 
-        for (uint32_t i = 0; i < nId2set; ++i) {
+        for (uint32_t i = 0; i < *nId2set; ++i) {
+            keys[i] = { id1, atype, id2set[i] };
             requestObjects[i] =
                 MultiReadObject(assocTableId,
                                 &keys[i],
                                 downCast<uint16_t>(sizeof(keys[i])),
-                                &values[i]);
+                                &kvpairs[i]);
             requests[i] = &requestObjects[i];
         }
-        client->multiRead(requests, nId2set);
+        client->multiRead(requests, *nId2set);
     }
 
 #if 0
@@ -446,6 +473,7 @@ class TAOTest {
 
     static void runAll(RamCloud* client) {
         void (TAOTest::* tests[])(void) = {
+            &TAOTest::test_filter,
             &TAOTest::test_objectAdd,
             &TAOTest::test_assocAdd,
         };
@@ -456,6 +484,59 @@ class TAOTest {
             printf("- Test end -\n");
         }
         printf("--- Tests complete ---\n");
+    }
+
+    void test_filter() {
+        TAO::Id ids[4] = { 0, 1, 2, 3 };
+        TAO::Time t = 0;
+
+        Buffer value{};
+        TAO::AssocList l{&value};
+        l.add(ids[1], t);
+        l.dump();
+        assert(value.size() == sizeof(TAO::AssocList::Assoc));
+        assert(l.size() == 1);
+
+        uint32_t nId2set = 1;
+        TAO::Id id2set[nId2set] = { 2 };
+        l.filter(id2set, &nId2set);
+        assert(nId2set == 0);
+
+        nId2set = 1;
+        id2set[0] = { 1 };
+        l.filter(id2set, &nId2set);
+        assert(nId2set == 1);
+        assert(id2set[0] == 1);
+
+        l.add(ids[3], t); // list contains 1 and 3 now.
+        assert(value.size() == 2 * sizeof(TAO::AssocList::Assoc));
+        assert(l.size() == 2);
+        l.dump();
+        {
+            uint32_t nId2set = 2;
+            TAO::Id id2set[nId2set] = { 2, 3 };
+            l.filter(id2set, &nId2set);
+            assert(nId2set == 1);
+            assert(id2set[0] == 3);
+        }
+
+        {
+            uint32_t nId2set = 2;
+            TAO::Id id2set[nId2set] = { 1, 3 };
+            l.filter(id2set, &nId2set);
+            assert(nId2set == 2);
+            assert(id2set[0] == 1);
+            assert(id2set[1] == 3);
+        }
+
+        {
+            uint32_t nId2set = 3;
+            TAO::Id id2set[nId2set] = { 1, 2, 3 };
+            l.filter(id2set, &nId2set);
+            assert(nId2set == 2);
+            assert(id2set[0] == 1);
+            assert(id2set[1] == 3);
+        }
     }
 
     void test_objectAdd() {
@@ -485,18 +566,101 @@ class TAOTest {
     void test_assocAdd() {
         Buffer kvpairs{};
 
-        TAO::Id id1 = tao.objectAdd(0x0b, kvpairs);
-        assert(id1 == 1);
+        std::vector<TAO::Id> ids{};
+        for (uint32_t i = 1; i <= 3; ++i) {
+            kvpairs.reset();
+            char c = static_cast<char>('0' + i);
+            kvpairs.append(&c, 1);
+            TAO::Id id = tao.objectAdd(0x0b, kvpairs);
+            assert(id == i);
+            ids.push_back(id);
+        }
 
-        TAO::Id id2 = tao.objectAdd(0x0b, kvpairs);
-        assert(id2 == 2);
-
+        // 1->2
+        kvpairs.reset();
+        kvpairs.append("1->2", 4);
         tao.assocAdd(1, 0x45, 2, 10, kvpairs);
 
-        TAO::Id id2set[1] = { 2 };
-        tao.assocGet(1, 0x45,
-                     id2set, sizeof(id2set)/sizeof(id2set[0]),
-                     kvpairs);
+        { // 1->2 is there.
+            uint32_t nId2set = 1;
+            TAO::Id id2set[nId2set] = { 2 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(1, 0x45, id2set, &nId2set, values);
+            assert(nId2set == 1);
+            assert(bool(values[0]) == true);
+            assert(memcmp(values[0]->getValue(), "1->2", 4) == 0);
+        }
+
+        { // 1->1 not there.
+            uint32_t nId2set = 1;
+            TAO::Id id2set[nId2set] = { 1 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(2, 0x45, id2set, &nId2set, values);
+            assert(bool(values[0]) == false);
+        }
+
+        { // 2->1 not there.
+            uint32_t nId2set = 1;
+            TAO::Id id2set[nId2set] = { 1 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(2, 0x45, id2set, &nId2set, values);
+            assert(nId2set == 0);
+        }
+
+        { // 2->2 not there.
+            uint32_t nId2set = 1;
+            TAO::Id id2set[nId2set] = { 2 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(2, 0x45, id2set, &nId2set, values);
+            assert(nId2set == 0);
+        }
+
+        // 2 -> 1
+        kvpairs.reset();
+        kvpairs.append("2->1", 4);
+        tao.assocAdd(2, 0x45, 1, 10, kvpairs);
+
+        { // 2->1 is there.
+            uint32_t nId2set = 1;
+            TAO::Id id2set[nId2set] = { 1 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(2, 0x45, id2set, &nId2set, values);
+            assert(nId2set == 1);
+            assert(bool(values[0]) == true);
+            assert(memcmp(values[0]->getValue(), "2->1", 4) == 0);
+        }
+
+        { // 2->2 is not there.
+            uint32_t nId2set = 1;
+            TAO::Id id2set[nId2set] = { 2 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(2, 0x45, id2set, &nId2set, values);
+            assert(bool(values[0]) == false);
+        }
+
+        kvpairs.reset();
+        kvpairs.append("2->3", 4);
+        tao.assocAdd(2, 0x45, 3, 10, kvpairs);
+
+        { // 2->{1, 3} are there.
+            uint32_t nId2set = 3;
+            TAO::Id id2set[nId2set] = { 1, 2, 3 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(2, 0x45, id2set, &nId2set, values);
+            assert(nId2set == 2);
+            assert(bool(values[0]) == true);
+            assert(bool(values[1]) == true);
+            assert(memcmp(values[0]->getValue(), "2->1", 4) == 0);
+            assert(memcmp(values[1]->getValue(), "2->3", 4) == 0);
+        }
+
+        { // Ensure nothing on other assocs.
+            uint32_t nId2set = 3;
+            TAO::Id id2set[nId2set] = { 1, 2, 3 };
+            Tub<ObjectBuffer> values[nId2set]{};
+            tao.assocGet(2, 0x46, id2set, &nId2set, values);
+            assert(nId2set == 0);
+        }
     }
 
   private:
