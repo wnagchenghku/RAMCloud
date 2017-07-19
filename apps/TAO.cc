@@ -22,6 +22,11 @@ using namespace RAMCloud;
 // TODO
 // - Need something like htonl on ids.
 
+//#define log printf
+#define log noLog
+
+void noLog(const char* format, ...) {}
+
 static constexpr char const* nextIdKey = "__nextId";
 
 size_t constexpr static_strlen(const char* str)
@@ -170,7 +175,10 @@ class TAO {
      */
     Id objectAdd(OType otype, Buffer& kvpairs) {
         Id id = allocId();
+        log("objectAdd id == %lu\n", id);
+        log("objectAdd kvpairs.size() == %u\n", kvpairs.size());
         kvpairs.emplacePrepend<ObjectHeader>(otype);
+        log("objectAdd kvpairs.size() == %u\n", kvpairs.size());
         client->write(objectTableId,
                       &id, downCast<uint16_t>(sizeof(id)),
                       kvpairs.getRange(0, kvpairs.size()),
@@ -203,8 +211,10 @@ class TAO {
     OType objectGet(uint64_t id, Buffer& kvpairs) {
         client->read(objectTableId,
                      &id, downCast<uint16_t>(sizeof(id)), &kvpairs);
+        log("objectGet kvpairs.size() == %u\n", kvpairs.size());
         ObjectHeader* header = kvpairs.getStart<ObjectHeader>();
-        kvpairs.truncateFront(sizeof(header));
+        kvpairs.truncateFront(sizeof(*header));
+        log("objectGet kvpairs.size() == %u\n", kvpairs.size());
         return header->otype;
     }
 
@@ -463,6 +473,7 @@ class TAOTest {
         kvpairs.reset();
         TAO::OType otype = tao.objectGet(id1, kvpairs);
         assert(otype == 0x0b);
+        log("kvpairs.size() == %u\n", kvpairs.size());
         assert(kvpairs.size() == 4);
         assert(strcmp(static_cast<char*>(kvpairs.getRange(0, 4)), "test") == 0);
 
