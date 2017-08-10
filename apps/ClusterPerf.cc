@@ -6424,21 +6424,12 @@ void
 rocksteadySimpleMigration()
 {
     uint16_t keyLengthB = 30;
-    uint32_t numObjects = 10000000;
+    uint32_t valueLengthB = objectSize;
 
     uint64_t tableId = cluster->createTable("rocksteadySimpleMigration");
 
     // First, fill up the table.
-    for (uint32_t i = 0; i < numObjects; i++) {
-        char primaryKey[keyLengthB];
-        snprintf(primaryKey, keyLengthB, "p%0*d", keyLengthB - 2, i);
-
-        Buffer value;
-        fillBuffer(value, objectSize, tableId, primaryKey, keyLengthB);
-
-        cluster->write(tableId, primaryKey, keyLengthB,
-                value.getRange(0, objectSize), objectSize);
-    }
+    fillTable(tableId, numObjects, keyLengthB, valueLengthB);
 
     ProtoBuf::ServerList protoServerList;
     CoordinatorClient::getServerList(context, &protoServerList);
@@ -6468,15 +6459,10 @@ rocksteadySimpleMigration()
             (numObjects * (objectSize + keyLengthB + 30)) / (1024 * 1024 * 1024);
     Cycles::sleep(1000000 * (30 + migrationTimeEstimate));
 
-    // Make sure that every object can be read after the migration has been
-    // started.
-    for (uint32_t i = 0; i < numObjects; i++) {
-        char primaryKey[keyLengthB];
-        snprintf(primaryKey, keyLengthB, "p%0*d", keyLengthB - 2, i);
-
-        Buffer value;
-        cluster->read(tableId, primaryKey, keyLengthB, &value);
-    }
+    // Perform random reads on the tablet.
+    int count = 10000000;
+    double timeLimit = 1;
+    readRandomObjects(tableId, numObjects, keyLengthB, count, timeLimit);
 }
 
 // Write times for objects with string keys of different lengths.
