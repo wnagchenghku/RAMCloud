@@ -13,7 +13,7 @@ namespace RAMCloud {
  * as a Poller with this master's dispatch thread.
  */
 RocksteadyMigrationManager::RocksteadyMigrationManager(Context* context,
-        string localLocator)
+                            string localLocator)
     : Dispatch::Poller(context->dispatch, "RocksteadyMigrationManager")
     , context(context)
     , tombstoneProtector()

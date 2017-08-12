@@ -147,6 +147,10 @@ int seconds = 10;
 // for each sample along with its duration.
 bool fullSamples = false;
 
+// If true, use the Rocksteady protocol in the migrateLoaded test, else,
+// use the old single-threaded migration protocol.
+bool useRocksteady = false;
+
 #define MAX_METRICS 8
 
 // The following type holds metrics for all the clients.  Each inner vector
@@ -4843,7 +4847,6 @@ doWorkload(OpType type)
     std::vector<Sample> samples{};
     samples.reserve(maxSamples);
 
-    const bool useRocksteady = true;
     Tub<MigrateTabletRpc> migration{};
     Tub<RocksteadyMigrateTabletRpc> rocksteadyMigration{};
     uint64_t migrationStartCycles = 0;
@@ -7035,7 +7038,9 @@ try
                 "only applies to doWorkload based experiments.")
         ("fullSamples", po::bool_switch(&fullSamples),
                 "Print alternate format for latency samples that includes "
-                "timestamps for each of the samples.");
+                "timestamps for each of the samples.")
+        ("useRocksteady", po::bool_switch(&useRocksteady),
+                "Use the Rocksteady protocol to migrate tablet.");
 
     po::positional_options_description pos_desc;
     pos_desc.add("testName", -1);

@@ -306,6 +306,8 @@ def run_test(
         client_args['--fullSamples'] = ''
     if options.seconds:
         client_args['--seconds'] = options.seconds
+    if options.useRocksteady:
+        client_args['--useRocksteady'] = ''
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -958,6 +960,9 @@ if __name__ == '__main__':
                  'timestamps along with their durations.')
     parser.add_option('--superuser', action='store_true', default=False,
             help='Start the cluster and clients as superuser')
+    parser.add_option('--useRocksteady',
+            action='store_true', default=False, dest='useRocksteady',
+            help='Use the Rocksteady protocol to migrate tablets.')
     (options, args) = parser.parse_args()
 
     if options.parse:
