@@ -6,6 +6,23 @@
 #include "MasterService.h"
 #include "RocksteadyMigrationManager.h"
 
+// Uncomment to disable replay of migrated data. Useful for benchmarking
+// RocksteadyMigrationPullHashesRpc() throughput. This can also be enabled
+// by compiling RAMCloud with EXTRACXXFLAGS=-DROCKSTEADY_NO_REPLAY
+// #define ROCKSTEADY_NO_REPLAY
+
+// Uncomment to disable priority migration requests. Useful for benchmarking
+// the impact of the background migration process. This can also be enabled
+// by compiling RAMCloud with EXTRACXXFLAGS=-DROCKSTEADY_NO_PRIORITY_HASHES
+// #define ROCKSTEADY_NO_PRIORITY_HASHES
+
+// Uncomment to retain tablet ownership on the source during migration. This
+// will result in an unsafe protocol because some writes to the tablet that
+// were performed during the migration will never be transferred over. This
+// can also be enabled by compiling RAMCloud with
+// EXTRACXXFLAGS=-DROCKSTEADY_SOURCE_OWNS_TABLET
+// #define ROCKSTEADY_SOURCE_OWNS_TABLET
+
 namespace RAMCloud {
 
 /**
@@ -207,6 +224,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , busyReplayRpcs()
     , sideLogs()
     , freeSideLogs()
+    , tookOwnership(false)
     , droppedSourceTablet(false)
     , dropSourceTabletRpc()
     , nextSideLogCommit(0)
@@ -336,6 +354,7 @@ RocksteadyMigration::prepare()
         // If the take ownership rpc was sent out, check for it's completion.
         if (takeOwnershipRpc->isReady()) {
             takeOwnershipRpc->wait();
+            tookOwnership = true;
 
             // Create logical partitions on the source's hash table once the
             // take ownership rpc has returned.
@@ -401,9 +420,10 @@ RocksteadyMigration::prepare()
                     " table %lu from master %lu.", *sourceSafeVersion,
                     startKeyHash, endKeyHash, tableId, sourceServerId.getId());
 
+            // If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, then do not prepare
+            // the source. Instead, just create the set of partitions and tell
+            // the manager to start migrating data.
 #ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
-            // Create logical partitions on the source's hash table once the
-            // take ownership rpc has returned.
             for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
                 uint64_t partitionStartHTBucket =
                         i * (sourceNumHTBuckets / MAX_NUM_PARTITIONS);
@@ -423,13 +443,15 @@ RocksteadyMigration::prepare()
 
             // The destination can now start migrating data.
             phase = MIGRATING_DATA;
-#else
+
+            return 1;
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
+
             // Obtain the head of this master's log in order to initiate
             // ownership transfer.
             getHeadOfLogRpc.construct((context->getMasterService())->serverId,
                     localLocator);
             context->workerManager->handleRpc(getHeadOfLogRpc.get());
-#endif
 
             return 1;
         } else {
@@ -463,6 +485,11 @@ RocksteadyMigration::pullAndReplay_main()
     workDone += pullAndReplay_reapReplayRpcs();
     // End of STEP-2.
 
+    // If ROCKSTEADY_NO_REPLAY is defined, then the phase does not change
+    // to SIDELOG_COMMIT once all data has been pulled. This is because the
+    // priority-pulls and priority-replays still need to go through because
+    // of the early ownership transfer of the tablet.
+#ifndef ROCKSTEADY_NO_REPLAY
     // STEP-3: All partitions have completed pulling and replaying data.
     if (numCompletedPartitions == MAX_NUM_PARTITIONS) {
         migrationEndTS = Cycles::rdtsc();
@@ -471,32 +498,37 @@ RocksteadyMigration::pullAndReplay_main()
         double migrationSeconds = Cycles::toSeconds(migrationEndTS -
                 migrationStartTS);
 
-        LOG(NOTICE, "Migration has completed on all partitions. Changing"
+        LOG(WARNING, "Migration has completed on all partitions. Changing"
                 " state to SIDELOG_COMMIT (Tablet[0x%lx, 0x%lx] in table %lu)."
                 " Moving %.2f MB of data over took %.2f seconds (%.2f MBps)",
                 startKeyHash, endKeyHash, tableId, migratedMegaBytes,
                 migrationSeconds, migratedMegaBytes / migrationSeconds);
 
-#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
-        phase = TEAR_DOWN;
-#else
+        // If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, then ownership of the
+        // tablet has not been transferred over yet. Do not try changing it's
+        // state.
+#ifndef ROCKSTEADY_SOURCE_OWNS_TABLET
         // Need to change tablet state here rather than after sidelog commit.
         // What if a priority hashes request is sent out after migration but
         // before sidelog commit?
         tabletManager->changeState(tableId, startKeyHash, endKeyHash,
                 TabletManager::ROCKSTEADY_MIGRATING, TabletManager::NORMAL);
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
 
         phase = SIDELOG_COMMIT;
-#endif
 
         return workDone;
     } // End of STEP-3.
+#endif // ROCKSTEADY_NO_REPLAY
 
-#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
+    // If either of ROCKSTEADY_SYNC_PRIORITY_HASHES or
+    // ROCKSTEADY_NO_PRIORITY_HASHES has been defined, then do not issue any
+    // priority pull requests to the source.
+#if !defined(ROCKSTEADY_SYNC_PRIORITY_HASHES) && !defined(ROCKSTEADY_NO_PRIORITY_HASHES)
     // STEP-4: Make progress on any priority hashes pull and replay requests.
     workDone += pullAndReplay_priorityHashes();
     // End of STEP-4.
-#endif //ROCKSTEADY_SYNC_PRIORITY_HASHES
+#endif // !ROCKSTEADY_SYNC_PRIORITY_HASHES && !ROCKSTEADY_NO_PRIORITY_HASHES
 
     // STEP-5: Issue a new batch of pulls if possible.
     workDone += pullAndReplay_sendPullRpcs();
@@ -505,8 +537,6 @@ RocksteadyMigration::pullAndReplay_main()
     // STEP-6: Issue a new batch of replays if possible.
     workDone += pullAndReplay_sendReplayRpcs();
     // End of STEP-6.
-
-    pullAndReplay_checkEfficiency();
 
     return workDone == 0 ? 0 : 1;
 }
@@ -646,29 +676,23 @@ RocksteadyMigration::pullAndReplay_reapPullRpcs()
             }
 
 #ifdef ROCKSTEADY_NO_REPLAY
+            // If ROCKSTEADY_NO_REPLAY has been defined, then drop the received
+            // data immediately. Nothing is scheduled for replay.
             (*((*pullRpc)->responseBuffer)).destroy();
             (*partition)->freePullBuffers.push_back(
                     (*pullRpc)->responseBuffer);
             (*partition)->pullRpcInProgress = false;
 
             if ((*partition)->allDataPulled) {
-                LOG(NOTICE, "Finished replaying all data in partition[%lu,"
-                        " %lu]. Pulled %lu Bytes and replayed %lu Bytes"
-                        " (Migrating tablet[0x%lx, 0x%lx] in table %lu).",
-                        (*partition)->startHTBucket, (*partition)->endHTBucket,
-                        (*partition)->totalPulledBytes,
-                        (*partition)->totalReplayedBytes, startKeyHash,
-                        endKeyHash, tableId);
-
                 (*partition).destroy();
                 numCompletedPartitions++;
             }
-#else
+#else  // ROCKSTEADY_NO_REPLAY
             // The response buffer is now eligible for replay.
             (*partition)->freeReplayBuffers.push_back(
                     (*pullRpc)->responseBuffer);
             (*partition)->pullRpcInProgress = false;
-#endif
+#endif // ROCKSTEADY_NO_REPLAY
 
             // Add this rpc to the free list.
             (*pullRpc).destroy();
@@ -761,7 +785,7 @@ RocksteadyMigration::pullAndReplay_sendPullRpcs()
 {
     int workDone = 0;
 
-    if (freePullRpcs.size() != 0 ) {
+    if (freePullRpcs.size() != 0) {
         // Identify the set of partitions on which a pull rpc can be
         // issued.
         std::deque<Tub<RocksteadyHashPartition>*> candidatePartitions;
@@ -806,7 +830,7 @@ RocksteadyMigration::pullAndReplay_sendPullRpcs()
             // Issue the rpc.
             (*pullRpc).construct(context, sourceServerId, tableId, startKeyHash,
                     endKeyHash, currentHTBucket, currentHTBucketEntry,
-                    endHTBucket, 10 * 1024 /* Ask the source for 10 KB */,
+                    endHTBucket, 20 * 1024 /* Ask the source for 20 KB */,
                     responseBuffer, partition);
 
             LOG(ll, "Issued pull on partition[%lu, %lu] starting at"
@@ -927,52 +951,34 @@ RocksteadyMigration::pullAndReplay_sendReplayRpcs()
     return workDone;
 }
 
-__inline __attribute__((always_inline)) void
-RocksteadyMigration::pullAndReplay_checkEfficiency()
-{
-#ifdef ROCKSTEADY_CHECK_WORK_CONSERVING
-    size_t numIdleWorkers = context->workerManager->testingNumIdleWorkers();
-    if (numIdleWorkers > 0) {
-        uint64_t numQueuedBuffers = 0;
-        for (uint32_t i = 0; i < MAX_NUM_PARTITIONS; i++) {
-            if (!partitions[i]) {
-                continue;
-            }
-
-            if ((partitions[i]->freeReplayBuffers).size() != 0) {
-                numQueuedBuffers += (partitions[i]->freeReplayBuffers).size();
-            }
-        }
-
-        if (numQueuedBuffers > 0) {
-            LOG(WARNING, "Migration manager is not work conserving. There are"
-                    " %lu data buffers waiting for replay inspite of there"
-                    " being %lu idle worker threads.", numQueuedBuffers,
-                    numIdleWorkers);
-        }
-    }
-#endif
-
-#ifdef ROCKSTEADY_RPC_UTILIZATION
-    if (freeReplayRpcs.size() != 0) {
-        LOG(WARNING, "There are %zd free replay rpcs", freeReplayRpcs.size());
-    }
-
-    if (freePullRpcs.size() != 0) {
-        LOG(WARNING, "There are %zd free pull rpcs", freePullRpcs.size());
-    }
-
-    if (freeReplayRpcs.size() != freeSideLogs.size()) {
-        LOG(WARNING, "The number of free replay rpcs are not equal to the"
-                " number of free sidelogs. Bug?");
-    }
-#endif
-}
-
 int
 RocksteadyMigration::sideLogCommit()
 {
     int workDone = 0;
+
+    // If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, take ownership of the
+    // tablet from the source after all data has been migrated over.
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+    if (!tookOwnership) {
+        if (takeOwnershipRpc) {
+            if (takeOwnershipRpc->isReady()) {
+                takeOwnershipRpc->wait();
+                tookOwnership = true;
+            } else {
+                return 0;
+            }
+        } else {
+            // Add the tablet to the target.
+            tabletManager->addTablet(tableId, startKeyHash, endKeyHash,
+                    TabletManager::NORMAL);
+            takeOwnershipRpc.construct(context, tableId, startKeyHash,
+                    endKeyHash, (context->getMasterService())->serverId,
+                    1, 0);
+
+            return 1;
+        }
+    }
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
 
     // Rule 1: Make progress on dropping the source's copy of the tablet.
     if (!droppedSourceTablet) {

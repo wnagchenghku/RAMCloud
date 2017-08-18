@@ -2141,6 +2141,9 @@ MasterService::rocksteadyDropSourceTablet(
         return;
     }
 
+    // If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, the tablet was never
+    // locked for migration to begin with.
+#ifndef ROCKSTEADY_SOURCE_OWNS_TABLET
     if (sourceTablet.state != TabletManager::LOCKED_FOR_MIGRATION) {
         LOG(NOTICE, "Received a rocksteady drop tablet request on a tablet"
                 " that was not previously locked for migration: tablet[0x%lx,"
@@ -2148,6 +2151,7 @@ MasterService::rocksteadyDropSourceTablet(
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
 
     bool removed = tabletManager.deleteTablet(tableId, startKeyHash,
             endKeyHash);
@@ -2200,6 +2204,8 @@ MasterService::rocksteadyMigrationPriorityHashes(
         return;
     }
 
+    // If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, then do not check for a
+    // locked tablet.
 #ifndef ROCKSTEADY_SOURCE_OWNS_TABLET
     if (sourceTablet.state != TabletManager::LOCKED_FOR_MIGRATION) {
         LOG(NOTICE, "Received a priority hashes migration request for a"
@@ -2209,7 +2215,7 @@ MasterService::rocksteadyMigrationPriorityHashes(
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
-#endif
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
 
     numReturnedLogEntries = objectManager.rocksteadyMigrationPriorityHashes(
             tableId, startKeyHash, endKeyHash, tombstoneSafeVersion,
@@ -2280,7 +2286,8 @@ MasterService::rocksteadyMigrationPullHashes(
     }
 
 #ifndef ROCKSTEADY_SOURCE_OWNS_TABLET
-    // Check if the tablet was previously locked for migration.
+    // Check if the tablet was previously locked for migration only if
+    // ROCKSTEADY_SOURCE_OWNS_TABLET is not defined.
     if (sourceTablet.state != TabletManager::LOCKED_FOR_MIGRATION) {
         LOG(WARNING, "Migration Pull Hashes request for a tablet that was"
                 " not previously locked for migration: requested region"
@@ -2289,7 +2296,7 @@ MasterService::rocksteadyMigrationPullHashes(
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
-#endif
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
 
     // Check to ensure that the set of hash table buckets to be scanned
     // will not overflow this master's hash table.
@@ -2339,10 +2346,6 @@ MasterService::rocksteadyMigrationReplay(
 
     objectManager.replaySegment(replaySideLog->get(), segmentIt);
 
-#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
-    (*replaySideLog)->commit();
-#endif
-
     respHdr->numReplayedBytes = bufferLength;
     respHdr->common.status = STATUS_OK;
     return;
@@ -2367,10 +2370,6 @@ MasterService::rocksteadyMigrationPriorityReplay(
     segmentIt.checkMetadataIntegrity();
 
     objectManager.replaySegment(replaySideLog->get(), segmentIt);
-
-#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
-    (*replaySideLog)->commit();
-#endif
 
     respHdr->numReplayedBytes = bufferLength;
     respHdr->common.status = STATUS_OK;
@@ -2478,7 +2477,8 @@ MasterService::rocksteadyPrepForMigration(
     }
 
     // Lock the tablet for migration and allow any in progress writes on it
-    // to complete.
+    // to complete. If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, then do not
+    // lock because ownership needs to be retained untill the end of migration.
     // TODO: What happens if the tablet is already locked for migration?
 #ifndef ROCKSTEADY_SOURCE_OWNS_TABLET
     bool changedState = tabletManager.changeState(tableId, startKeyHash,
@@ -2491,7 +2491,8 @@ MasterService::rocksteadyPrepForMigration(
         respHdr->common.status = STATUS_INTERNAL_ERROR;
         return;
     }
-#endif
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
+
     LogProtector::wait(context, Transport::ServerRpc::APPEND_ACTIVITY);
 
     // Return the safe version number so that the destination may serve

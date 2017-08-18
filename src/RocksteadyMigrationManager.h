@@ -13,16 +13,6 @@
 #include "TabletManager.h"
 #include "CoordinatorClient.h"
 
-// Uncomment to disable replay of migrated data. Useful for benchmarking
-// RocksteadyMigrationPullHashesRpc() throughput.
-// #define ROCKSTEADY_NO_REPLAY
-
-// Uncomment to enable a check for whether the migration manager is work
-// conserving at the target machine.
-// #define ROCKSTEADY_CHECK_WORK_CONSERVING
-
-// #define ROCKSTEADY_RPC_UTILIZATION
-
 // Uncomment to prevent migrated segments from using a seperate task queue
 // for (re-)replication.
 // #define ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
@@ -30,10 +20,6 @@
 // Uncomment to enable synchronous priority-hash requests on the read path.
 // This will also disable batched priority pulls at the migration manager.
 // #define ROCKSTEADY_SYNC_PRIORITY_HASHES
-
-// Uncomment to retain tablet ownership on the source. This will result in
-// an unsafe protocol, but is useful for testing.
-// #define ROCKSTEADY_SOURCE_OWNS_TABLET
 
 namespace RAMCloud {
 
@@ -305,7 +291,7 @@ class RocksteadyMigration {
 
     std::deque<Tub<RocksteadyPullRpc>*> busyPullRpcs;
 
-    static const uint32_t MAX_PARALLEL_REPLAY_RPCS = 8;
+    static const uint32_t MAX_PARALLEL_REPLAY_RPCS = 6;
 
     class RocksteadyReplayRpc : public Transport::ServerRpc {
       public:
@@ -489,6 +475,8 @@ class RocksteadyMigration {
         friend class RocksteadyMigration;
         DISALLOW_COPY_AND_ASSIGN(RocksteadySideLogCommitRpc);
     };
+
+    bool tookOwnership;
 
     bool droppedSourceTablet;
 

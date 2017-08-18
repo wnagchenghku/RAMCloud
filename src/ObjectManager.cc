@@ -342,6 +342,15 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
 
         // If the tablet does not exist, return an error to the client.
         if (!tabletExists) {
+
+        // If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, this tablet could
+        // have been migrated out. XXX: This is just for testing and is neither
+        // safe nor correct.
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+            throw RetryException(HERE, 50, 100,
+                    "Tablet is currently locked for migration!");
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
+
             return STATUS_UNKNOWN_TABLET;
         }
 
@@ -381,18 +390,27 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
             // Check the current state of the tablet the key belongs to.
             if (tabletExists && t.state ==
                     TabletManager::ROCKSTEADY_MIGRATING) {
+                // If ROCKSTEADY_SYNC_PRIORITY_HASHES is defined, issue priority
+                // requests to the source server synchronously from this worker
+                // while bypassing the migration manager.
 #ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
+                // If ROCKSTEADY_NO_PRIORITY_HASHES is defined, just ask the
+                // client to retry without issuing any priority requests to the
+                // migration manager. The read will go through successfully once
+                // the migration has completed.
+#ifndef ROCKSTEADY_NO_PRIORITY_HASHES
+                {
                 // The tablet is still under migration. Request for a priority
                 // migration and ask the client to retry after some time.
-                {
                     context->rocksteadyMigrationManager->requestPriorityHash(
                             t.tableId, t.startKeyHash, t.endKeyHash,
                             key.getHash());
                 }
+#endif // ROCKSTEADY_NO_PRIORITY_HASHES
 
                 throw RetryException(HERE, 50, 100,
                         "Tablet is currently under migration by Rocksteady!");
-#else
+#else  // ROCKSTEADY_SYNC_PRIORITY_HASHES
                 // XXX If a safeVersion is being sent over to the source, make
                 // sure it is read before this lock is released.
                 lock.destroy();
@@ -1336,6 +1354,14 @@ ObjectManager::writeObject(Object& newObject, RejectRules* rejectRules,
     // If the tablet doesn't exist in the NORMAL state, we must plead ignorance.
     TabletManager::Tablet tablet;
     if (!tabletManager->getTablet(key, &tablet)) {
+        // If ROCKSTEADY_SOURCE_OWNS_TABLET is defined, this tablet could
+        // have been migrated out. XXX: This is just for testing and is neither
+        // safe nor correct.
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+        throw RetryException(HERE, 50, 100,
+                "Tablet is currently locked for migration!");
+#endif // ROCKSTEADY_SOURCE_OWNS_TABLET
+
         return STATUS_UNKNOWN_TABLET;
     }
     if (tablet.state != TabletManager::NORMAL) {
