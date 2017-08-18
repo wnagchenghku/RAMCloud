@@ -151,6 +151,10 @@ bool fullSamples = false;
 // use the old single-threaded migration protocol.
 bool useRocksteady = false;
 
+// For experiments that use a zipfian generator. Specifies the number of keys
+// by which the distribution should be offset.
+int zipfOffset = 0;
+
 #define MAX_METRICS 8
 
 // The following type holds metrics for all the clients.  Each inner vector
@@ -474,7 +478,8 @@ class WorkloadGenerator {
                 // Generate random key.
                 memset(key, 0, keyLen);
                 string("workload").copy(key, 8);
-                *reinterpret_cast<uint64_t*>(key + 8) = generator->nextNumber();
+                *reinterpret_cast<uint64_t*>(key + 8) =
+                        (generator->nextNumber() + zipfOffset) % numObjects;
 
                 // Perform Operation
                 if (generateRandom() <= readThreshold) {
@@ -4867,7 +4872,8 @@ doWorkload(OpType type)
         memset(key, 0, keyLen);
         string("workload").copy(key, 8);
         *reinterpret_cast<uint64_t*>(key + 8) =
-                loadGenerator.generator->nextNumber();
+                (loadGenerator.generator->nextNumber() + zipfOffset) %
+                numObjects;
 
         // Perform Operation
         if (generateRandom() <= readThreshold) {
@@ -4958,7 +4964,8 @@ doWorkload(OpType type)
             }
         }
 
-        if (stats.size() <= ((now - experimentStartTicks) / oneSecond)) {
+        if (stats.size() <= ((now - experimentStartTicks) /
+            Cycles::fromMicroseconds(100 * 1000))) {
             stats.emplace_back();
             cluster->serverControlAll(
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0, &stats.back());
@@ -7040,7 +7047,9 @@ try
                 "Print alternate format for latency samples that includes "
                 "timestamps for each of the samples.")
         ("useRocksteady", po::bool_switch(&useRocksteady),
-                "Use the Rocksteady protocol to migrate tablet.");
+                "Use the Rocksteady protocol to migrate tablet.")
+        ("zipfOffset", po::value<int>(&zipfOffset)->default_value(0),
+                "Offset a zipfian distribution by a certain number of keys.");
 
     po::positional_options_description pos_desc;
     pos_desc.add("testName", -1);

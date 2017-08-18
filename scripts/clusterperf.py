@@ -46,6 +46,7 @@ import re
 import sys
 import time
 from optparse import OptionParser
+import random
 
 # Each object of the following class represents one test that can be
 # performed by this program.
@@ -778,6 +779,10 @@ def migrateLoaded(name, options, cluster_args, client_args):
         # Turn on timestamps on latency samples.
         defaultTo(client_args, '--fullSamples', '')
 
+        # Generate an offset for the zipfian distribution.
+        client_args['--zipfOffset'] = \
+                random.randint(0, client_args['--numObjects'])
+
         name = 'readDistWorkload'
         cluster.run(client='%s/apps/ClusterPerf %s %s' %
                 (obj_path,  flatten_args(client_args), name),
@@ -963,6 +968,8 @@ if __name__ == '__main__':
     parser.add_option('--useRocksteady',
             action='store_true', default=False, dest='useRocksteady',
             help='Use the Rocksteady protocol to migrate tablets.')
+    parser.add_option('--zipfOffset', type=int, default=0, dest='zipfOffset',
+            help='Offset a zipfian distribution by a certain number of keys.')
     (options, args) = parser.parse_args()
 
     if options.parse:
