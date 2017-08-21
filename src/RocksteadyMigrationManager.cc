@@ -23,6 +23,12 @@
 // EXTRACXXFLAGS=-DROCKSTEADY_SOURCE_OWNS_TABLET
 // #define ROCKSTEADY_SOURCE_OWNS_TABLET
 
+// Uncomment to enable synchronous priority-hash requests on the read path.
+// This will also disable batched priority pulls at the migration manager.
+// This can also be enabled by compiling RAMCloud with
+// EXTRACXXFLAGS=-DROCKSTEADY_SYNC_PRIORITY_HASHES
+// #define ROCKSTEADY_SYNC_PRIORITY_HASHES
+
 namespace RAMCloud {
 
 /**
@@ -253,7 +259,6 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
         freeReplayRpcs.push_back(&(replayRpcs[i]));
     }
 
-#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
     // Construct all the sidelogs.
 #ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
     priorityHashesSideLog.construct(objectManager->getLog());
@@ -261,7 +266,6 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     priorityHashesSideLog.construct(objectManager->getLog(),
             context->rocksteadyMigrationManager);
 #endif // ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
-#endif // ROCKSTEADY_SYNC_PRIORITY_HASHES
 
     for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
 #ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
@@ -1017,13 +1021,9 @@ RocksteadyMigration::sideLogCommit()
                     endKeyHash, tableId);
 
             sideLogCommitRpc.destroy();
-#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
             nextSideLogCommit < MAX_PARALLEL_REPLAY_RPCS ?
                     nextSideLogCommit++ :
                     priorityHashesSideLogCommitted = true;
-#else
-            nextSideLogCommit++;
-#endif // ROCKSTEADY_SYNC_PRIORITY_HASHES
             workDone++;
         } else {
             return workDone;
@@ -1043,7 +1043,6 @@ RocksteadyMigration::sideLogCommit()
                     endKeyHash, tableId);
         } // End of Rule 3.
 
-#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
         // Rule 4: If all regular sidelogs have committed, issue a commit on
         // the sidelog that was used for the priority hashes.
         else if (!priorityHashesSideLogCommitted) {
@@ -1055,7 +1054,6 @@ RocksteadyMigration::sideLogCommit()
                     " (Tablet[0x%lx, 0x%lx] in table %lu)", startKeyHash,
                     endKeyHash, tableId);
         } // End of Rule 4.
-#endif // ROCKSTEADY_SYNC_PRIORITY_HASHES
 
         // Rule 5: If all sidelogs have been committed, change state to
         // TEAR_DOWN.

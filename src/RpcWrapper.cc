@@ -229,7 +229,7 @@ RpcWrapper::isReady() {
 
                 if (message != NULL && !strcmp(message,
                         "Tablet is currently under migration by Rocksteady!")) {
-                    dumpRequest();
+                    // dumpRequest();
                 }
 
             } else {

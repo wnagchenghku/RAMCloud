@@ -17,10 +17,6 @@
 // for (re-)replication.
 // #define ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
 
-// Uncomment to enable synchronous priority-hash requests on the read path.
-// This will also disable batched priority pulls at the migration manager.
-// #define ROCKSTEADY_SYNC_PRIORITY_HASHES
-
 namespace RAMCloud {
 
 // Forward declaration.

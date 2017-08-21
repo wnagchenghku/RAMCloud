@@ -390,15 +390,11 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
             // Check the current state of the tablet the key belongs to.
             if (tabletExists && t.state ==
                     TabletManager::ROCKSTEADY_MIGRATING) {
-                // If ROCKSTEADY_SYNC_PRIORITY_HASHES is defined, issue priority
-                // requests to the source server synchronously from this worker
-                // while bypassing the migration manager.
-#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
                 // If ROCKSTEADY_NO_PRIORITY_HASHES is defined, just ask the
                 // client to retry without issuing any priority requests to the
                 // migration manager. The read will go through successfully once
                 // the migration has completed.
-#ifndef ROCKSTEADY_NO_PRIORITY_HASHES
+#if !defined(ROCKSTEADY_SYNC_PRIORITY_HASHES) && !defined(ROCKSTEADY_NO_PRIORITY_HASHES)
                 {
                 // The tablet is still under migration. Request for a priority
                 // migration and ask the client to retry after some time.
@@ -406,8 +402,12 @@ ObjectManager::readObject(Key& key, Buffer* outBuffer,
                             t.tableId, t.startKeyHash, t.endKeyHash,
                             key.getHash());
                 }
-#endif // ROCKSTEADY_NO_PRIORITY_HASHES
+#endif // !ROCKSTEADY_SYNC_PRIORITY_HASHES && !ROCKSTEADY_NO_PRIORITY_HASHES
 
+                // If ROCKSTEADY_SYNC_PRIORITY_HASHES is defined, issue priority
+                // requests to the source server synchronously from this worker
+                // while bypassing the migration manager.
+#ifndef ROCKSTEADY_SYNC_PRIORITY_HASHES
                 throw RetryException(HERE, 50, 100,
                         "Tablet is currently under migration by Rocksteady!");
 #else  // ROCKSTEADY_SYNC_PRIORITY_HASHES
