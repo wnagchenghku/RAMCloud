@@ -1,0 +1,41 @@
+#!/bin/bash
+
+numRuns=10
+
+transport=basic+infud
+
+numObjects=70000000
+objectSize=100
+
+function run() {
+    tag=$1
+    shift
+
+    #pdsh -w rc[01-24] "echo 3 | sudo tee --append /proc/sys/vm/drop_caches > /dev/null"
+    sleep 120
+
+    ./clusterperf.py migrateLoaded \
+            -T $transport \
+            --workload=YCSB-B \
+            --loadPct=90 \
+            --seconds=30 \
+            --timeout=600 \
+            --migratePercentage=50 \
+            --size=$objectSize \
+            --numObjects=$numObjects \
+            --masterArgs='--totalMasterMemory=14336 --segmentFrames=8192 --maxCores=5 --maxNonVolatileBuffers=0 -d' \
+            --verbose \
+            -r 3 \
+            --fullSamples \
+            --servers=7 \
+            --clients=16 \
+            --useRocksteady
+
+    mkdir -p logs/rocksteady/$tag/
+    cp -r logs/latest/* logs/rocksteady/$tag/
+}
+
+for run in `seq $numRuns`
+do
+    run rocksteady-run-$run
+done
