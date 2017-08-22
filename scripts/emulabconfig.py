@@ -70,11 +70,11 @@ def pdsh(cmd, checked=True):
     """ Runs command on remote hosts using pdsh on remote hosts"""
     log("Running parallely on all hosts")
     if checked:
-        return subprocess.check_call('pdsh -w^./.emulab-hosts "%s"' % cmd,
-                                     shell=True, stdout=sys.stdout)
+        return subprocess.check_call('pdsh -w^./.emulab-hosts "%s" > /dev/null 2>&1'
+                                     % cmd, shell=True, stdout=sys.stdout)
     else:
-        return subprocess.call('pdsh -w^./.emulab-hosts "%s"' %cmd,
-                               shell=True, stdout=sys.stdout)
+        return subprocess.call('pdsh -w^./.emulab-hosts "%s" > /dev/null 2>&1' \
+                               %cmd, shell=True, stdout=sys.stdout)
 
 def captureSh(command, **kwargs):
     """Execute a local command and capture its output."""
