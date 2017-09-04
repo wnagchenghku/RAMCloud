@@ -116,6 +116,8 @@ Server::run()
     // servicing requests.
     enlistTimer.construct(this, formerServerId);
 
+    pinToCpu(0);
+
     dispatch.run();
 }
 
