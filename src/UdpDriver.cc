@@ -303,6 +303,8 @@ UdpDriver::getServiceLocator()
 void
 UdpDriver::readerThreadMain(UdpDriver* driver)
 {
+    pinToCpu(15);
+
     // Index within driver->packetBatches where we will read the next
     // batch of packets.
     int currentBatch = 0;

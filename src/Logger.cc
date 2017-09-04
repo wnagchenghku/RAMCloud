@@ -725,6 +725,7 @@ Logger::addToBuffer(const char* src, int length)
 void
 Logger::printThreadMain(Logger* logger)
 {
+    pinToCpu(15);
     Lock lock(logger->mutex);
     int bytesToPrint;
     ssize_t bytesPrinted;
