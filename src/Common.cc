@@ -236,6 +236,7 @@ string demangle(const char* name) {
  * probing in #LargeBlockOfMemory.
  */
 void pinAllMemory() {
+#if 0
     int r = mlockall(MCL_CURRENT | MCL_FUTURE);
     if (r != 0) {
         LOG(WARNING, "Could not lock all memory pages (%s), so the OS might "
@@ -243,6 +244,7 @@ void pinAllMemory() {
                      "adjust /etc/security/limits.conf as necessary.",
                      strerror(errno));
     }
+#endif
 }
 
 } // namespace RAMCloud
