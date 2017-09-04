@@ -399,6 +399,8 @@ WorkerManager::workerMain(Worker* worker)
     worker->threadId = ThreadId::get();
     PerfStats::registerStats(&PerfStats::threadStats);
 
+    pinToCpu(worker->threadId % 15);
+
     // Cycles::rdtsc time that's updated continuously when this thread is idle.
     // Used to keep track of how much time this thread spends doing useful
     // work.
@@ -411,6 +413,7 @@ WorkerManager::workerMain(Worker* worker)
 
             // Wait for WorkerManager to supply us with some work to do.
             while (worker->state.load() != Worker::WORKING) {
+#if 0
                 if (lastIdle >= stopPollingTime) {
                     timeTrace("worker thread %d sleeping", worker->threadId);
 
@@ -439,6 +442,7 @@ WorkerManager::workerMain(Worker* worker)
                     timeTrace("worker thread %d waking", worker->threadId);
                 }
                 lastIdle = Cycles::rdtsc();
+#endif
             }
             Fence::enter();
             if (worker->rpc == WORKER_EXIT)
