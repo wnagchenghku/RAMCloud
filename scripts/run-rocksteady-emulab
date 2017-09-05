@@ -1,41 +1,38 @@
 #!/bin/bash
 
-numRuns=10
+numRuns=1
 
-transport=basic+infud
+transport=basic+dpdk
 
-numObjects=70000000
+numObjects=340000000
 objectSize=100
 
 function run() {
     tag=$1
     shift
 
-    #pdsh -w rc[01-24] "echo 3 | sudo tee --append /proc/sys/vm/drop_caches > /dev/null"
-    sleep 120
-
-    ./clusterperf.py migrateLoaded \
+    ./scripts/clusterperf.py migrateLoaded \
             -T $transport \
             --workload=YCSB-B \
-            --loadPct=90 \
-            --seconds=30 \
-            --timeout=600 \
+            --loadPct=60 \
+            --seconds=90 \
+            --timeout=3240 \
             --migratePercentage=50 \
             --size=$objectSize \
             --numObjects=$numObjects \
-            --masterArgs='--totalMasterMemory=14336 --segmentFrames=8192 --maxCores=5 --maxNonVolatileBuffers=0 -d' \
+            --masterArgs='--totalMasterMemory=62000 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
             --verbose \
             -r 3 \
             --fullSamples \
-            --servers=7 \
-            --clients=16 \
+            --servers=14 \
+            --clients=8 \
             --useRocksteady
 
     mkdir -p logs/rocksteady/$tag/
     cp -r logs/latest/* logs/rocksteady/$tag/
 }
 
-for run in `seq $numRuns`
+for runNum in `seq 1 $numRuns`
 do
-    run rocksteady-run-$run
+    run rocksteady$runNum
 done
