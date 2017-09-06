@@ -31,6 +31,6 @@ function run() {
 }
 
 make clean
-make -j8 DEBUG=no EXTRACXXFLAGS+=-DROCKSTEADY_NO_PRIORITY_HASHES DPDK=yes DPDK_DIR=dpdk
+make -j8 DEBUG=no EXTRACXXFLAGS+=-DROCKSTEADY_DISABLE_BACKGROUND DPDK=yes DPDK_DIR=dpdk
 
-run rocksteady-no-priorityPulls
+run rocksteady-batched-prio

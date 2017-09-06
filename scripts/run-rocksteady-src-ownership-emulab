@@ -18,7 +18,7 @@ function run() {
             --migratePercentage=50 \
             --size=$objectSize \
             --numObjects=$numObjects \
-            --masterArgs='--totalMasterMemory=62000 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
+            --masterArgs='--totalMasterMemory=61000 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
             --verbose \
             -r 3 \
             --fullSamples \
@@ -31,6 +31,6 @@ function run() {
 }
 
 make clean
-make -j8 DEBUG=no EXTRACXXFLAGS=-DROCKSTEADY_SOURCE_OWNS_TABLET DPDK=yes DPDK_DIR=dpdk
+make -j8 DEBUG=no EXTRACXXFLAGS+=-DROCKSTEADY_SOURCE_OWNS_TABLET DPDK=yes DPDK_DIR=dpdk
 
 run rocksteady-src-ownership

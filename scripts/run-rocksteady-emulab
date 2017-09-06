@@ -20,7 +20,7 @@ function run() {
             --migratePercentage=50 \
             --size=$objectSize \
             --numObjects=$numObjects \
-            --masterArgs='--totalMasterMemory=62000 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
+            --masterArgs='--totalMasterMemory=61000 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
             --verbose \
             -r 3 \
             --fullSamples \
@@ -31,6 +31,9 @@ function run() {
     mkdir -p logs/rocksteady/$tag/
     cp -r logs/latest/* logs/rocksteady/$tag/
 }
+
+make clean
+make -j8 DEBUG=no DPDK=yes DPDK_DIR=dpdk
 
 for runNum in `seq 1 $numRuns`
 do
