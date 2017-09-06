@@ -13,9 +13,33 @@
 #include "TabletManager.h"
 #include "CoordinatorClient.h"
 
-// Uncomment to prevent migrated segments from using a seperate task queue
-// for (re-)replication.
-// #define ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
+// Uncomment to disable replay of migrated data. Useful for benchmarking
+// RocksteadyMigrationPullHashesRpc() throughput. This can also be enabled
+// by compiling RAMCloud with EXTRACXXFLAGS=-DROCKSTEADY_NO_REPLAY
+// #define ROCKSTEADY_NO_REPLAY
+
+// Uncomment to disable priority migration requests. Useful for benchmarking
+// the impact of the background migration process. This can also be enabled
+// by compiling RAMCloud with EXTRACXXFLAGS=-DROCKSTEADY_NO_PRIORITY_HASHES
+// #define ROCKSTEADY_NO_PRIORITY_HASHES
+
+// Uncomment to retain tablet ownership on the source during migration. This
+// will result in an unsafe protocol because some writes to the tablet that
+// were performed during the migration will never be transferred over. This
+// can also be enabled by compiling RAMCloud with
+// EXTRACXXFLAGS=-DROCKSTEADY_SOURCE_OWNS_TABLET
+// #define ROCKSTEADY_SOURCE_OWNS_TABLET
+
+// Uncomment to enable synchronous priority-hash requests on the read path.
+// This will also disable batched priority pulls at the migration manager.
+// This can also be enabled by compiling RAMCloud with
+// EXTRACXXFLAGS=-DROCKSTEADY_SYNC_PRIORITY_HASHES
+// #define ROCKSTEADY_SYNC_PRIORITY_HASHES
+
+// Uncomment to disable bulk pulls and replays. Useful for benchmarking the
+// priority pulls and replays. This can also be enabled by compiling RAMCloud
+// with EXTRACXXFLAGS=-DROCKSTEADY_DISABLE_BACKGROUND
+// #define ROCKSTEADY_DISABLE_BACKGROUND
 
 namespace RAMCloud {
 

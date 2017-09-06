@@ -6,29 +6,6 @@
 #include "MasterService.h"
 #include "RocksteadyMigrationManager.h"
 
-// Uncomment to disable replay of migrated data. Useful for benchmarking
-// RocksteadyMigrationPullHashesRpc() throughput. This can also be enabled
-// by compiling RAMCloud with EXTRACXXFLAGS=-DROCKSTEADY_NO_REPLAY
-// #define ROCKSTEADY_NO_REPLAY
-
-// Uncomment to disable priority migration requests. Useful for benchmarking
-// the impact of the background migration process. This can also be enabled
-// by compiling RAMCloud with EXTRACXXFLAGS=-DROCKSTEADY_NO_PRIORITY_HASHES
-// #define ROCKSTEADY_NO_PRIORITY_HASHES
-
-// Uncomment to retain tablet ownership on the source during migration. This
-// will result in an unsafe protocol because some writes to the tablet that
-// were performed during the migration will never be transferred over. This
-// can also be enabled by compiling RAMCloud with
-// EXTRACXXFLAGS=-DROCKSTEADY_SOURCE_OWNS_TABLET
-// #define ROCKSTEADY_SOURCE_OWNS_TABLET
-
-// Uncomment to enable synchronous priority-hash requests on the read path.
-// This will also disable batched priority pulls at the migration manager.
-// This can also be enabled by compiling RAMCloud with
-// EXTRACXXFLAGS=-DROCKSTEADY_SYNC_PRIORITY_HASHES
-// #define ROCKSTEADY_SYNC_PRIORITY_HASHES
-
 namespace RAMCloud {
 
 /**
@@ -260,20 +237,12 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     }
 
     // Construct all the sidelogs.
-#ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
-    priorityHashesSideLog.construct(objectManager->getLog());
-#else
     priorityHashesSideLog.construct(objectManager->getLog(),
             context->rocksteadyMigrationManager);
-#endif // ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
 
     for (uint32_t i = 0; i < MAX_PARALLEL_REPLAY_RPCS; i++) {
-#ifdef ROCKSTEADY_NO_SEPERATE_REPLICATION_TASKQUEUE
-        sideLogs[i].construct(objectManager->getLog());
-#else
         sideLogs[i].construct(objectManager->getLog(),
                 context->rocksteadyMigrationManager);
-#endif
     }
 
     // To begin with, all sidelogs are free.
@@ -481,6 +450,9 @@ RocksteadyMigration::pullAndReplay_main()
 {
     int workDone = 0;
 
+    // If ROCKSTEADY_DISABLE_BACKGROUND is defined, then bulk pulls and replays
+    // will not be issued.
+#ifndef ROCKSTEADY_DISABLE_BACKGROUND
     // STEP-1: Check if any of the in-progress pulls have completed.
     workDone += pullAndReplay_reapPullRpcs();
     // End of STEP-1.
@@ -525,6 +497,8 @@ RocksteadyMigration::pullAndReplay_main()
     } // End of STEP-3.
 #endif // ROCKSTEADY_NO_REPLAY
 
+#endif // ROCKSTEADY_DISABLE_BACKGROUND
+
     // If either of ROCKSTEADY_SYNC_PRIORITY_HASHES or
     // ROCKSTEADY_NO_PRIORITY_HASHES has been defined, then do not issue any
     // priority pull requests to the source.
@@ -534,6 +508,9 @@ RocksteadyMigration::pullAndReplay_main()
     // End of STEP-4.
 #endif // !ROCKSTEADY_SYNC_PRIORITY_HASHES && !ROCKSTEADY_NO_PRIORITY_HASHES
 
+    // If ROCKSTEADY_DISABLE_BACKGROUND has been defined, then do not issue any
+    // bulk pulls or replays.
+#ifndef ROCKSTEADY_DISABLE_BACKGROUND
     // STEP-5: Issue a new batch of pulls if possible.
     workDone += pullAndReplay_sendPullRpcs();
     // End of STEP-5.
@@ -541,6 +518,7 @@ RocksteadyMigration::pullAndReplay_main()
     // STEP-6: Issue a new batch of replays if possible.
     workDone += pullAndReplay_sendReplayRpcs();
     // End of STEP-6.
+#endif // ROCKSTEADY_DISABLE_BACKGROUND
 
     return workDone == 0 ? 0 : 1;
 }
