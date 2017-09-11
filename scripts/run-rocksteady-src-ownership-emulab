@@ -1,24 +1,30 @@
 #!/bin/bash
 
+numRuns=10
+
 transport=basic+dpdk
 
-numObjects=340000000
+numObjects=300000000
 objectSize=100
 
 function run() {
     tag=$1
     shift
 
+    pdsh -w node-[0-23] \
+            "echo 3 | sudo tee --append /proc/sys/vm/drop_caches > /dev/null"
+    sleep 120
+
     ./scripts/clusterperf.py migrateLoaded \
             -T $transport \
             --workload=YCSB-B \
-            --loadPct=60 \
-            --seconds=90 \
+            --loadPct=55 \
+            --seconds=120 \
             --timeout=3240 \
             --migratePercentage=50 \
             --size=$objectSize \
             --numObjects=$numObjects \
-            --masterArgs='--totalMasterMemory=61000 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
+            --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
             --verbose \
             -r 3 \
             --fullSamples \
@@ -33,4 +39,7 @@ function run() {
 make clean
 make -j8 DEBUG=no EXTRACXXFLAGS+=-DROCKSTEADY_SOURCE_OWNS_TABLET DPDK=yes DPDK_DIR=dpdk
 
-run rocksteady-src-ownership
+for runNum in `seq 1 $numRuns`
+do
+    run rocksteady-src-ownership$runNum
+done
