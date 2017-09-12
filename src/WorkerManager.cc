@@ -441,8 +441,8 @@ WorkerManager::workerMain(Worker* worker)
                     }
                     timeTrace("worker thread %d waking", worker->threadId);
                 }
-                lastIdle = Cycles::rdtsc();
 #endif
+                lastIdle = Cycles::rdtsc();
             }
             Fence::enter();
             if (worker->rpc == WORKER_EXIT)
