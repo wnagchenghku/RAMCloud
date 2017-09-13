@@ -186,9 +186,9 @@ if not finished:
     sys.exit(1)
 
 # Assign a level to Rocksteady RPCs.
-levels["ROCKSTEADY_MIGRATION_PULL_HASHES"] = 1
+levels["ROCKSTEADY_MIGRATION_PULL_HASHES"] = 3
 levels["PING"] = levels["ROCKSTEADY_MIGRATION_PULL_HASHES"] + 1
-levels["ROCKSTEADY_MIGRATION_REPLAY"] = 1
+levels["ROCKSTEADY_MIGRATION_REPLAY"] = 3
 
 # Finally, generate output, consisting of the guts of a C++ array
 # (everything between the '[' and the ']').
