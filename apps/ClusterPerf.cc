@@ -155,6 +155,8 @@ bool useRocksteady = false;
 // by which the distribution should be offset.
 int zipfOffset = 0;
 
+double zipfSkew = 0.99;
+
 #define MAX_METRICS 8
 
 // The following type holds metrics for all the clients.  Each inner vector
@@ -382,7 +384,7 @@ class WorkloadGenerator {
         RAMCLOUD_LOG(NOTICE, ">>> Read Percentage: %d", readPercent);
         RAMCLOUD_LOG(NOTICE, ">>> Migrate Percentage: %d", migratePercentage);
 
-        generator.construct(recordCount);
+        generator.construct(recordCount, zipfSkew);
     }
 
     /**
@@ -7049,7 +7051,9 @@ try
         ("useRocksteady", po::bool_switch(&useRocksteady),
                 "Use the Rocksteady protocol to migrate tablet.")
         ("zipfOffset", po::value<int>(&zipfOffset)->default_value(0),
-                "Offset a zipfian distribution by a certain number of keys.");
+                "Offset a zipfian distribution by a certain number of keys.")
+        ("zipfSkew", po::value<double>(&zipfSkew)->default_value(0.99),
+                "Skew to a zipfian distribution.");
 
     po::positional_options_description pos_desc;
     pos_desc.add("testName", -1);

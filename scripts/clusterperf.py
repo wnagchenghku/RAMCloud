@@ -309,6 +309,8 @@ def run_test(
         client_args['--seconds'] = options.seconds
     if options.useRocksteady:
         client_args['--useRocksteady'] = ''
+    if options.zipfSkew != None:
+        client_args['--zipfSkew'] = options.zipfSkew
     test.function(test.name, options, cluster_args, client_args)
 
 #-------------------------------------------------------------------
@@ -763,7 +765,7 @@ def migrateLoaded(name, options, cluster_args, client_args):
 
         # We're really interested in jitter on servers; better keep the clients
         # off the server machines.
-        # cluster_args['disjunct'] = True
+        cluster_args['disjunct'] = True
 
         # Can't default --workload this due to command line default...
 
@@ -970,6 +972,8 @@ if __name__ == '__main__':
             help='Use the Rocksteady protocol to migrate tablets.')
     parser.add_option('--zipfOffset', type=int, default=0, dest='zipfOffset',
             help='Offset a zipfian distribution by a certain number of keys.')
+    parser.add_option('--zipfSkew', type=float, default=0.99, dest='zipfSkew',
+            help='Skew to a zipfian distribution.')
     (options, args) = parser.parse_args()
 
     if options.parse:
