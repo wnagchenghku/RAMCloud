@@ -48,7 +48,7 @@ class StatDumper {
             printf("== %d ==\n", i++);
             collectStats();
             fflush(stdout);
-            sleep(1);
+            Cycles::sleep(100 * 1000);
         }
     }
 

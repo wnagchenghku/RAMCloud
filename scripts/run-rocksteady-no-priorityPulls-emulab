@@ -1,6 +1,6 @@
 #!/bin/bash
 
-numRuns=10
+numRuns=1
 
 transport=basic+dpdk
 
@@ -24,11 +24,11 @@ function run() {
             --migratePercentage=50 \
             --size=$objectSize \
             --numObjects=$numObjects \
-            --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=10 --maxNonVolatileBuffers=0 -d' \
+            --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=9 --maxNonVolatileBuffers=0 -d' \
             --verbose \
             -r 3 \
             --fullSamples \
-            --servers=14 \
+            --servers=13 \
             --clients=8 \
             --useRocksteady
 

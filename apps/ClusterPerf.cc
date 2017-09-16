@@ -54,6 +54,8 @@ namespace po = boost::program_options;
 #include "Transaction.h"
 #include "Util.h"
 
+#include "RocksteadyMigrationManager.h"
+
 using namespace RAMCloud;
 
 // Shared state for client library.
@@ -4800,6 +4802,11 @@ doWorkload(OpType type)
     ServerList serverList(context);
     serverList.applyServerList(protoServerList);
 
+#ifdef ROCKSTEADY_NO_PRIORITY_HASHES
+    LOG(NOTICE, "Starting Experiment in one minute.");
+    Cycles::sleep(60 * 1000 * 1000);
+#endif
+
     sendCommand("run", "running", 1, numClients-1);
 
     // Split the "data" table if required.
@@ -4966,12 +4973,14 @@ doWorkload(OpType type)
             }
         }
 
+#ifndef ROCKSTEADY_NO_PRIORITY_HASHES
         if (stats.size() <= ((now - experimentStartTicks) /
             Cycles::fromMicroseconds(100 * 1000))) {
             stats.emplace_back();
             cluster->serverControlAll(
                 WireFormat::ControlOp::GET_PERF_STATS, NULL, 0, &stats.back());
         }
+#endif
 
         if (now > targetEndTime)
             break;

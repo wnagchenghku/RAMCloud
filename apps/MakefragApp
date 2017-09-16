@@ -45,6 +45,7 @@ apps: $(APPOBJDIR)/backuprecovery \
       $(APPOBJDIR)/ensureServers \
       $(APPOBJDIR)/migrateTablet \
       $(APPOBJDIR)/recovery \
+      $(APPOBJDIR)/dumpPerfStats \
       $(NULL)
 
 all: apps
