@@ -114,8 +114,10 @@ SideLog::commit()
     if (segments.empty())
         return;
 
+    // If the source owns the tablet during migration, commit rocksteady
+    // sidelogs that are almost full.
 #ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
-    if (totalLiveBytes < 8337408UL) return;
+    if (totalLiveBytes < 8337408UL && isRocksteady) return;
 #endif
 
     // The last segment will still be open. Close it and begin replication.
@@ -123,11 +125,15 @@ SideLog::commit()
     lastSegmentAllocated->close();
     lastSegmentAllocated->replicatedSegment->close();
 
+    // If the source owns the tablet during migration, do not proceed slowly
+    // during commit of rocksteady sidelogs.
+#ifndef ROCKSTEADY_SOURCE_OWNS_TABLET
     if (isRocksteady) {
         while(!replicaManager->proceedOnRocksteady()) {
             Cycles::sleep(1000);
         }
     }
+#endif
 
     // Ensure that replication has completed on all segments.
     foreach (LogSegment* segment, segments)

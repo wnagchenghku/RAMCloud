@@ -2346,6 +2346,12 @@ MasterService::rocksteadyMigrationReplay(
 
     objectManager.replaySegment(replaySideLog->get(), segmentIt);
 
+    // If the source owns the tablet during migration, synchronize this
+    // sidelog with backups.
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+    (*replaySideLog)->commit();
+#endif
+
     respHdr->numReplayedBytes = bufferLength;
     respHdr->common.status = STATUS_OK;
     return;

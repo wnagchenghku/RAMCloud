@@ -1056,6 +1056,13 @@ RocksteadyMigration::tearDown()
 {
     int workDone = 0;
 
+    // Do not delete change state to COMPLETED if the source owned the tablet
+    // during migration. This is because the sidelogs might still contain live
+    // data.
+#ifdef ROCKSTEADY_SOURCE_OWNS_TABLET
+    return workDone;
+#endif
+
     // TODO: Add code to issue a drop-dependency rpc to the coordinator here.
 
     phase = COMPLETED;
