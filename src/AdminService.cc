@@ -323,8 +323,10 @@ AdminService::serverControl(const WireFormat::ServerControl::Request* reqHdr,
         {
             PerfStats stats;
             PerfStats::collectStats(&stats);
-            context->getMasterService()->objectManager.getLog()
-                   ->getMemoryStats(&stats);
+            if (context->getMasterService()) {
+                context->getMasterService()->objectManager.getLog()
+                       ->getMemoryStats(&stats);
+            }
             respHdr->outputLength = sizeof32(stats);
             rpc->replyPayload->appendCopy(&stats, respHdr->outputLength);
             break;
