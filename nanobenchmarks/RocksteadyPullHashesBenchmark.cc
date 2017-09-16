@@ -170,7 +170,7 @@ int
 main(int argc, char* argv[])
 {
     long int numRuns = 10;
-    std::vector<size_t> numThreads= { 1, 2, 4, 8 };
+    std::vector<size_t> numThreads= { 1, 2, 4, 8, 16 };
     // Approximately 3.48 GB of data including log entry headers.
     std::vector<uint32_t> numObjects = { 30400000, 20000000, 11900000, 6550000,
             3450000, 1775000, 453000 };
