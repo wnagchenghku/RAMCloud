@@ -1,0 +1,49 @@
+#!/bin/bash
+
+numRuns=1
+
+transport=basic+dpdk
+
+numObjects=300000000
+objectSize=100
+
+function run() {
+    tag=$1
+    shift
+
+    pdsh -w node-[0-23] \
+            "echo 3 | sudo tee --append /proc/sys/vm/drop_caches > /dev/null"
+    sleep 120
+
+    ./scripts/clusterperf.py migrateLoaded \
+            -T $transport \
+            --workload=YCSB-B \
+            --loadPct=55 \
+            --seconds=120 \
+            --timeout=3240 \
+            --migratePercentage=50 \
+            --size=$objectSize \
+            --numObjects=$numObjects \
+            --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=9 --maxNonVolatileBuffers=0 -d' \
+            --verbose \
+            -r 3 \
+            --fullSamples \
+            --servers=14 \
+            --clients=8 \
+            --useRocksteady \
+            --zipfSkew=$1
+
+    mkdir -p logs/rocksteady/$tag/
+    cp -r logs/latest/* logs/rocksteady/$tag/
+}
+
+make clean
+make -j8 DEBUG=no DPDK=yes DPDK_DIR=dpdk
+
+for runNum in `seq 1 $numRuns`
+do
+    run rocksteady-skew1.5-$runNum 1.5
+    run rocksteady-skew0.99-$runNum 0.99
+    run rocksteady-skew0.5-$runNum 0.5
+    run rocksteady-skew0.0-$runNum 0.0
+done
