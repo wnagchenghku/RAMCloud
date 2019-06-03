@@ -482,100 +482,94 @@ class WorkloadGenerator {
         uint64_t readEndTime[NUM_SIZES];
         uint64_t writeStartTime[NUM_SIZES];
         uint64_t writeEndTime[NUM_SIZES];
-        std::vector<uint64_t> ticks;
         Tub<ReadRpc> readRpcs[NUM_SIZES]; // When you initially create a Tub its object is uninitialized (and should not be used).
         Tub<WriteRpc> writeRpcs[NUM_SIZES];
         Buffer results[NUM_SIZES];
+        int rpcsInFlight;
+        uint64_t startTime;
+        bool running = false;
 
         try {
-            for (int i = 0; i < NUM_SIZES; i++) {
-                
-                // Generate random key.
-                memset(key, 0, keyLen);
-                string("workload").copy(key, 8);
-                *reinterpret_cast<uint64_t*>(key + 8) = (generator->nextNumber() + zipfOffset) % numObjects;
-                
-                // Perform Operation
-                if (generateRandom() <= readThreshold) {
-                    readStartTime[i] = Cycles::rdtsc();
-                    readRpcs[i].construct(cluster, dataTable, key, keyLen, &results[i]);
-                } else {
-                    // Do write
-                    writeStartTime[i] = Cycles::rdtsc();
-                    Util::genRandomString(value, recordSizeB);
-                    writeRpcs[i].construct(cluster, dataTable, key, keyLen, value, recordSizeB);
-                }
-            }
-            int rpcsInFlight;
             while (true) {
-                for (int i = 0; i < NUM_SIZES; ++i) {
-                    if (readRpcs[i]) {
-                        // Tub overrides operator bool()
-                        // Return whether the object is initialized.
-                        if (readRpcs[i]->isReady()) {
-                            readRpcs[i]->wait();
-                            readEndTime[i] = Cycles::rdtsc();
-                            ticks.push_back(readEndTime[i] - readStartTime[i]);
-                            readRpcs[i].destroy();
+                if (running) {
+                    double totalTime = Cycles::toSeconds(Cycles::rdtsc() - startTime);
+                }
+                startTime = Cycles::rdtsc();
+                opCount = 0;
+                uint64_t checkTime = startTime + Cycles::fromSeconds(1.0);
+                running = true;
+                do {
+                    rpcsInFlight = 0;
+                    for (int i = 0; i < NUM_SIZES; ++i) {
+                        if (readRpcs[i]) {
+                            // Tub overrides operator bool()
+                            // Return whether the object is initialized.
+                            rpcsInFlight++;
+                        }
+                        if (writeRpcs[i]) {
+                            rpcsInFlight++;
                         }
                     }
-                }
 
-                for (int i = 0; i < NUM_SIZES; ++i) {
-                    if (writeRpcs[i]) {
-                        if (writeRpcs[i]->isReady()) {
-                            writeRpcs[i]->wait();
-                            writeEndTime[i] = Cycles::rdtsc();
-                            ticks.push_back(writeEndTime[i] - writeEndTime[i]);
-                            writeRpcs[i].destroy();
-                        }
-                    }
-                }
+                    for (int i = rpcsInFlight; i < NUM_SIZES; i++) {
+                        // Generate random key.
+                        memset(key, 0, keyLen);
+                        string("workload").copy(key, 8);
+                        *reinterpret_cast<uint64_t*>(key + 8) = (generator->nextNumber() + zipfOffset) % numObjects;
 
-                rpcsInFlight = 0;
-                for (int i = 0; i < NUM_SIZES; ++i) {
-                    if (readRpcs[i]) {
-                        rpcsInFlight++;
-                    }
-                    if (writeRpcs[i]) {
-                        rpcsInFlight++;
-                    }
-                }
-
-                for (int i = rpcsInFlight; i < NUM_SIZES; i++) {
-                    // Generate random key.
-                    memset(key, 0, keyLen);
-                    string("workload").copy(key, 8);
-                    *reinterpret_cast<uint64_t*>(key + 8) = (generator->nextNumber() + zipfOffset) % numObjects;
-
-                    // Perform Operation
-                    if (generateRandom() <= readThreshold) {
-                        // Do read
-                        // cluster->read(dataTable, key, keyLen, &readBuf);
-                        for (int j = 0; j < NUM_SIZES; ++j) {
-                            if (!readRpcs[j]) {
-                                readStartTime[j] = Cycles::rdtsc();
-                                readRpcs[j].construct(cluster, dataTable, key, keyLen, &results[j]);
-                                break;
+                        // Perform Operation
+                        if (generateRandom() <= readThreshold) {
+                            // Do read
+                            // cluster->read(dataTable, key, keyLen, &readBuf);
+                            for (int j = 0; j < NUM_SIZES; ++j) {
+                                if (!readRpcs[j]) {
+                                    readStartTime[j] = Cycles::rdtsc();
+                                    readRpcs[j].construct(cluster, dataTable, key, keyLen, &results[j]);
+                                    opCount++;
+                                    break;
+                                }
                             }
-                        }
-                    } else {
-                        // Do write
-                        Util::genRandomString(value, recordSizeB);
-                        // cluster->write(dataTable, key, keyLen, value, recordSizeB,
-                        //                NULL, NULL, asyncReplication);
-                        for (int j = 0; j < NUM_SIZES; ++j) {
-                            if (!writeRpcs[j]) {
-                                writeStartTime[j] = Cycles::rdtsc();
-                                writeRpcs[j].construct(cluster, dataTable, key, keyLen, value, recordSizeB);
-                                break;
+                        } else {
+                            // Do write
+                            Util::genRandomString(value, recordSizeB);
+                            // cluster->write(dataTable, key, keyLen, value, recordSizeB,
+                            //                NULL, NULL, asyncReplication);
+                            for (int j = 0; j < NUM_SIZES; ++j) {
+                                if (!writeRpcs[j]) {
+                                    writeStartTime[j] = Cycles::rdtsc();
+                                    writeRpcs[j].construct(cluster, dataTable, key, keyLen, value, recordSizeB);
+                                    opCount++;
+                                    break;
+                                }
                             }
                         }
                     }
-                }
-                cluster->clientContext->dispatch->poll();
+                    
+                    cluster->clientContext->dispatch->poll();
+
+                    for (int i = 0; i < NUM_SIZES; ++i) {
+                        if (readRpcs[i]) {
+                            if (readRpcs[i]->isReady()) {
+                                readRpcs[i]->wait();
+                                readEndTime[i] = Cycles::rdtsc();
+                                readRpcs[i].destroy();
+                            }
+                        }
+                    }
+
+                    for (int i = 0; i < NUM_SIZES; ++i) {
+                        if (writeRpcs[i]) {
+                            if (writeRpcs[i]->isReady()) {
+                                writeRpcs[i]->wait();
+                                writeEndTime[i] = Cycles::rdtsc();
+                                writeRpcs[i].destroy();
+                            }
+                        }
+                    }
+                } while (Cycles::rdtsc() < checkTime);
             }
         } catch (TableDoesntExistException &e) {
+            // Slaves will run the specified workload until the "data" table is dropped.
             throw e;
         }
 
