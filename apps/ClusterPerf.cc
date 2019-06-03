@@ -458,7 +458,8 @@ class WorkloadGenerator {
         const uint16_t keyLen = 30;
         char key[keyLen];
         Buffer readBuf;
-        char value[recordSizeB];
+        // char value[recordSizeB];
+        char value[100];
 
         uint64_t readThreshold = (~0UL / 100) * readPercent;
         uint64_t opCount = 0;
