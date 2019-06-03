@@ -478,10 +478,6 @@ class WorkloadGenerator {
         uint64_t stop = 0;
 
 #define NUM_SIZES 5
-        uint64_t readStartTime[NUM_SIZES];
-        uint64_t readEndTime[NUM_SIZES];
-        uint64_t writeStartTime[NUM_SIZES];
-        uint64_t writeEndTime[NUM_SIZES];
         Tub<ReadRpc> readRpcs[NUM_SIZES]; // When you initially create a Tub its object is uninitialized (and should not be used).
         Tub<WriteRpc> writeRpcs[NUM_SIZES];
         Buffer results[NUM_SIZES];
@@ -523,7 +519,6 @@ class WorkloadGenerator {
                             // cluster->read(dataTable, key, keyLen, &readBuf);
                             for (int j = 0; j < NUM_SIZES; ++j) {
                                 if (!readRpcs[j]) {
-                                    readStartTime[j] = Cycles::rdtsc();
                                     readRpcs[j].construct(cluster, dataTable, key, keyLen, &results[j]);
                                     opCount++;
                                     break;
@@ -536,7 +531,6 @@ class WorkloadGenerator {
                             //                NULL, NULL, asyncReplication);
                             for (int j = 0; j < NUM_SIZES; ++j) {
                                 if (!writeRpcs[j]) {
-                                    writeStartTime[j] = Cycles::rdtsc();
                                     writeRpcs[j].construct(cluster, dataTable, key, keyLen, value, recordSizeB);
                                     opCount++;
                                     break;
@@ -551,7 +545,6 @@ class WorkloadGenerator {
                         if (readRpcs[i]) {
                             if (readRpcs[i]->isReady()) {
                                 readRpcs[i]->wait();
-                                readEndTime[i] = Cycles::rdtsc();
                                 readRpcs[i].destroy();
                             }
                         }
@@ -561,7 +554,6 @@ class WorkloadGenerator {
                         if (writeRpcs[i]) {
                             if (writeRpcs[i]->isReady()) {
                                 writeRpcs[i]->wait();
-                                writeEndTime[i] = Cycles::rdtsc();
                                 writeRpcs[i].destroy();
                             }
                         }
