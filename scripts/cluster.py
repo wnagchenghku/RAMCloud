@@ -640,7 +640,8 @@ def run(
             coordinator_host = cluster.hosts[len(cluster.hosts)-1]
         cluster.start_coordinator(coordinator_host, coordinator_args)
         if disjunct:
-            cluster.hosts.pop(0)
+            # cluster.hosts.pop(0)
+            cluster.hosts.remove(coordinator_host)
 
         if old_master_host:
             oldMaster = cluster.start_server(old_master_host,

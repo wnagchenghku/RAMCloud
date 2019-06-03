@@ -476,58 +476,156 @@ class WorkloadGenerator {
         uint64_t start = Cycles::rdtsc();
         uint64_t stop = 0;
 
-        try
-        {
-            while (true) {
+#define NUM_SIZES 5
+        uint64_t readStartTime[NUM_SIZES];
+        uint64_t readEndTime[NUM_SIZES];
+        uint64_t writeStartTime[NUM_SIZES];
+        uint64_t writeEndTime[NUM_SIZES];
+        std::vector<uint64_t> ticks;
+        Tub<ReadRpc> readRpcs[NUM_SIZES];
+        Tub<WriteRpc> writeRpcs[NUM_SIZES];
+        Buffer results[NUM_SIZES];
+
+        for (int i = 0; i < NUM_SIZES; i++) {
+            
+            // Generate random key.
+            memset(key, 0, keyLen);
+            string("workload").copy(key, 8);
+            *reinterpret_cast<uint64_t*>(key + 8) = (generator->nextNumber() + zipfOffset) % numObjects;
+            
+            // Perform Operation
+            if (generateRandom() <= readThreshold) {
+                readStartTime[i] = Cycles::rdtsc();
+                readRpcs[i].construct(cluster, dataTable, key, keyLen, &results[i]);
+            } else {
+                // Do write
+                writeStartTime[i] = Cycles::rdtsc();
+                Util::genRandomString(value, recordSizeB);
+                writeRpcs[i].construct(cluster, dataTable, key, keyLen, value, recordSizeB);
+            }
+        }
+        int rpcsInFlight;
+        uint64_t now;
+        while (1) {
+            for (int i = 0; i < NUM_SIZES; ++i) {
+                if (readRpcs[i]) {
+                    if (readRpcs[i]->isReady()) {
+                        readRpcs[i]->wait();
+                        readEndTime[i] = Cycles::rdtsc();
+                        ticks.push_back(readEndTime[i] - readStartTime[i]);
+                        readRpcs[i].destroy();
+                    }
+                }
+            }
+
+            for (int i = 0; i < NUM_SIZES; ++i) {
+                if (writeRpcs[i]) {
+                    if (writeRpcs[i]->isReady()) {
+                        writeRpcs[i]->wait();
+                        writeEndTime[i] = Cycles::rdtsc();
+                        ticks.push_back(writeEndTime[i] - writeEndTime[i]);
+                        writeRpcs[i].destroy();
+                    }
+                }
+            }
+
+            rpcsInFlight = 0;
+            for (int i = 0; i < NUM_SIZES; ++i) {
+                if (readRpcs[i]) {
+                    rpcsInFlight++;
+                }
+                if (writeRpcs[i]) {
+                    rpcsInFlight++;
+                }
+            }
+
+            for (int i = rpcsInFlight; i < NUM_SIZES; i++) {
                 // Generate random key.
                 memset(key, 0, keyLen);
                 string("workload").copy(key, 8);
-                *reinterpret_cast<uint64_t*>(key + 8) =
-                        (generator->nextNumber() + zipfOffset) % numObjects;
+                *reinterpret_cast<uint64_t*>(key + 8) = (generator->nextNumber() + zipfOffset) % numObjects;
 
                 // Perform Operation
                 if (generateRandom() <= readThreshold) {
                     // Do read
-                    cluster->read(dataTable, key, keyLen, &readBuf);
-                    readCount++;
+                    // cluster->read(dataTable, key, keyLen, &readBuf);
+                    for (int j = 0; j < NUM_SIZES; ++j) {
+                        if (!readRpcs[j]) {
+                            readStartTime[j] = Cycles::rdtsc();
+                            readRpcs[j].construct(cluster, dataTable, key, keyLen, &results[j]);
+                            break;
+                        }
+                    }
                 } else {
                     // Do write
                     Util::genRandomString(value, recordSizeB);
-                    cluster->write(dataTable, key, keyLen, value, recordSizeB,
-                                   NULL, NULL, asyncReplication);
-                    writeCount++;
-                }
-                opCount++;
-                stop = Cycles::rdtsc();
-
-                // throttle
-                if (targetNSPO > 0) {
-                    nextStop = start +
-                               Cycles::fromNanoseconds(
-                                    (opCount * targetNSPO) +
-                                    (generateRandom() % targetNSPO) -
-                                    (targetNSPO / 2));
-                    if (Cycles::rdtsc() > nextStop) {
-                        targetMissCount++;
+                    // cluster->write(dataTable, key, keyLen, value, recordSizeB,
+                    //                NULL, NULL, asyncReplication);
+                    for (int j = 0; j < NUM_SIZES; ++j) {
+                        if (!writeRpcs[j]) {
+                            writeStartTime[j] = Cycles::rdtsc();
+                            writeRpcs[j].construct(cluster, dataTable, key, keyLen, value, recordSizeB);
+                            break;
+                        }
                     }
-                    while (Cycles::rdtsc() < nextStop);
                 }
             }
-        } catch (TableDoesntExistException &e) {
-            LogLevel ll = NOTICE;
-            if (targetMissCount > 0) {
-                ll = WARNING;
-            }
-            RAMCLOUD_LOG(ll,
-                    "Actual OPS %.0f / Target OPS %lu",
-                    static_cast<double>(opCount) /
-                    static_cast<double>(Cycles::toSeconds(stop - start)),
-                    targetOps);
-            RAMCLOUD_LOG(ll,
-                    "%lu Misses / %lu Total -- %lu/%lu R/W",
-                    targetMissCount, opCount, readCount, writeCount);
-            throw e;
+            cluster->clientContext->dispatch->poll();
         }
+#undef NUM_SIZES
+        // try
+        // {
+        //     while (true) {
+        //         // Generate random key.
+        //         memset(key, 0, keyLen);
+        //         string("workload").copy(key, 8);
+        //         *reinterpret_cast<uint64_t*>(key + 8) =
+        //                 (generator->nextNumber() + zipfOffset) % numObjects;
+
+        //         // Perform Operation
+        //         if (generateRandom() <= readThreshold) {
+        //             // Do read
+        //             cluster->read(dataTable, key, keyLen, &readBuf);
+        //             readCount++;
+        //         } else {
+        //             // Do write
+        //             Util::genRandomString(value, recordSizeB);
+        //             cluster->write(dataTable, key, keyLen, value, recordSizeB,
+        //                            NULL, NULL, asyncReplication);
+        //             writeCount++;
+        //         }
+        //         opCount++;
+        //         stop = Cycles::rdtsc();
+
+        //         throttle
+        //         if (targetNSPO > 0) {
+        //             nextStop = start +
+        //                        Cycles::fromNanoseconds(
+        //                             (opCount * targetNSPO) +
+        //                             (generateRandom() % targetNSPO) -
+        //                             (targetNSPO / 2));
+        //             if (Cycles::rdtsc() > nextStop) {
+        //                 targetMissCount++;
+        //             }
+        //             while (Cycles::rdtsc() < nextStop);
+        //         }
+
+        //     }
+        // } catch (TableDoesntExistException &e) {
+        //     LogLevel ll = NOTICE;
+        //     if (targetMissCount > 0) {
+        //         ll = WARNING;
+        //     }
+        //     RAMCLOUD_LOG(ll,
+        //             "Actual OPS %.0f / Target OPS %lu",
+        //             static_cast<double>(opCount) /
+        //             static_cast<double>(Cycles::toSeconds(stop - start)),
+        //             targetOps);
+        //     RAMCLOUD_LOG(ll,
+        //             "%lu Misses / %lu Total -- %lu/%lu R/W",
+        //             targetMissCount, opCount, readCount, writeCount);
+        //     throw e;
+        // }
     }
 //private:
     int recordCount;
