@@ -6458,8 +6458,10 @@ rocksteadySimpleMigration()
     ServerList serverList(context);
     serverList.applyServerList(protoServerList);
 
-    ServerId sourceServerId(3, 0);
-    ServerId targetServerId(4, 0);
+    // ServerId sourceServerId(3, 0);
+    // ServerId targetServerId(4, 0);
+    ServerId sourceServerId(2, 0);
+    ServerId targetServerId(3, 0);    
 
     uint64_t startKeyHash = 0UL;
     uint64_t endKeyHash = ~0UL;

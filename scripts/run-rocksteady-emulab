@@ -1,19 +1,21 @@
 #!/bin/bash
 
-numRuns=10
+# numRuns=10
+numRuns=1
 
 transport=basic+dpdk
 
-numObjects=300000000
+# numObjects=300000000
+numObjects=30000
 objectSize=100
 
 function run() {
     tag=$1
     shift
 
-    pdsh -w node-[0-23] \
-            "echo 3 | sudo tee --append /proc/sys/vm/drop_caches > /dev/null"
-    sleep 120
+    # pdsh -w node-[0-23] \
+    #         "echo 3 | sudo tee --append /proc/sys/vm/drop_caches > /dev/null"
+    # sleep 120
 
     ./scripts/clusterperf.py migrateLoaded \
             -T $transport \
@@ -26,18 +28,21 @@ function run() {
             --numObjects=$numObjects \
             --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=9 --maxNonVolatileBuffers=0 -d' \
             --verbose \
-            -r 3 \
+            -r 0 \
             --fullSamples \
-            --servers=14 \
-            --clients=8 \
-            --useRocksteady
+            --servers=4 \
+            --clients=1 \
+            --useRocksteady \
+            --dpdkPort=0 \
+            --logLevel=DEBUG \
+            --superuser
 
     mkdir -p logs/rocksteady/$tag/
     cp -r logs/latest/* logs/rocksteady/$tag/
 }
 
-make clean
-make -j8 DEBUG=no DPDK=yes DPDK_DIR=dpdk
+# make clean
+# make -j8 DEBUG=no DPDK=yes DPDK_DIR=dpdk
 
 for runNum in `seq 1 $numRuns`
 do

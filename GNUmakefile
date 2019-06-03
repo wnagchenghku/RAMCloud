@@ -216,7 +216,7 @@ ifeq ($(DPDK),yes)
 
 # Change the definition below if you compiled DPDK without shared libraries.
 # Note: this configuration is not well tested and may not work.
-DPDK_SHARED ?= yes
+# DPDK_SHARED ?= yes
 
 DPDK_TARGET  ?= x86_64-native-linuxapp-gcc
 COMFLAGS    += -DDPDK
@@ -226,7 +226,7 @@ ifeq ($(DPDK_DIR),)
 ifeq ($(DPDK_SHARED),no)
 $(error DPDK_SHARED should be yes when DPDK is installed on the system)
 endif
-DPDK_SHARED := yes
+# DPDK_SHARED := yes
 DPDK_LIB_DIR ?= /usr/lib64
 COMFLAGS += -I /usr/include/dpdk
 else
