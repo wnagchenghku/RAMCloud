@@ -483,7 +483,7 @@ class WorkloadGenerator {
         uint64_t writeStartTime[NUM_SIZES];
         uint64_t writeEndTime[NUM_SIZES];
         std::vector<uint64_t> ticks;
-        Tub<ReadRpc> readRpcs[NUM_SIZES];
+        Tub<ReadRpc> readRpcs[NUM_SIZES]; // When you initially create a Tub its object is uninitialized (and should not be used).
         Tub<WriteRpc> writeRpcs[NUM_SIZES];
         Buffer results[NUM_SIZES];
 
@@ -510,6 +510,8 @@ class WorkloadGenerator {
             while (true) {
                 for (int i = 0; i < NUM_SIZES; ++i) {
                     if (readRpcs[i]) {
+                        // Tub overrides operator bool()
+                        // Return whether the object is initialized.
                         if (readRpcs[i]->isReady()) {
                             readRpcs[i]->wait();
                             readEndTime[i] = Cycles::rdtsc();
