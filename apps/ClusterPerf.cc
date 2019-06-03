@@ -507,7 +507,6 @@ class WorkloadGenerator {
                 }
             }
             int rpcsInFlight;
-            uint64_t now;
             while (true) {
                 for (int i = 0; i < NUM_SIZES; ++i) {
                     if (readRpcs[i]) {
