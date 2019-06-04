@@ -489,6 +489,8 @@ class WorkloadGenerator {
             while (true) {
                 if (running) {
                     double totalTime = Cycles::toSeconds(Cycles::rdtsc() - startTime);
+                    double rate = opCount/totalTime;
+                    RAMCLOUD_LOG(NOTICE, "Throughput: %.1f kobjects/sec", rate/1e03);
                 }
                 startTime = Cycles::rdtsc();
                 opCount = 0;
@@ -520,7 +522,6 @@ class WorkloadGenerator {
                             for (int j = 0; j < NUM_SIZES; ++j) {
                                 if (!readRpcs[j]) {
                                     readRpcs[j].construct(cluster, dataTable, key, keyLen, &results[j]);
-                                    opCount++;
                                     break;
                                 }
                             }
@@ -532,7 +533,6 @@ class WorkloadGenerator {
                             for (int j = 0; j < NUM_SIZES; ++j) {
                                 if (!writeRpcs[j]) {
                                     writeRpcs[j].construct(cluster, dataTable, key, keyLen, value, recordSizeB);
-                                    opCount++;
                                     break;
                                 }
                             }
@@ -545,6 +545,7 @@ class WorkloadGenerator {
                         if (readRpcs[i]) {
                             if (readRpcs[i]->isReady()) {
                                 readRpcs[i]->wait();
+                                opCount++;
                                 readRpcs[i].destroy();
                             }
                         }
@@ -554,6 +555,7 @@ class WorkloadGenerator {
                         if (writeRpcs[i]) {
                             if (writeRpcs[i]->isReady()) {
                                 writeRpcs[i]->wait();
+                                opCount++;
                                 writeRpcs[i].destroy();
                             }
                         }
