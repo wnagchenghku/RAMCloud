@@ -270,6 +270,9 @@ class RocksteadyMigration {
     Tub<RocksteadyHashPartition> partitions[MAX_NUM_PARTITIONS];
 
     uint32_t numCompletedPartitions;
+    uint32_t totalNumReturnedHashes;
+    uint32_t totalPriorityHashesResponseBuffer;
+    uint64_t previousPriorityPullTime;
 
     class RocksteadyPullRpc {
       public:

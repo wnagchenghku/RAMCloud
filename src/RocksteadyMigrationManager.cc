@@ -539,9 +539,19 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
             priorityHashesResponseBuffer->truncateFront(sizeof32(
                     WireFormat::RocksteadyMigrationPriorityHashes::Response));
 
-            LOG(NOTICE, "Priority hashes request returned %u log entries, %u bytes. Issuing"
-                    " replay.", numReturnedHashes, priorityHashesResponseBuffer->size());
+            if (previousPriorityPullTime == 0) {
+                previousPriorityPullTime = Cycles::rdtsc();
+            }
 
+            totalNumReturnedHashes += numReturnedHashes;
+            totalPriorityHashesResponseBuffer += priorityHashesResponseBuffer->size();
+            uint64_t elapsedTime = Cycles::rdtsc() - previousPriorityPullTime;
+            if (elapsedTime > Cycles::fromSeconds(1.0)) {
+                previousPriorityPullTime = Cycles::rdtsc();
+                LOG(NOTICE, "Within %.2fs, Priority hashes request returned %u log entries, %u bytes.", Cycles::toSeconds(elapsedTime), totalNumReturnedHashes, totalPriorityHashesResponseBuffer);
+                totalNumReturnedHashes = 0;
+                totalPriorityHashesResponseBuffer = 0;
+            }
             // Issue a replay request to the worker manager.
             priorityReplayRpc.construct(&(partitions[0]) /* Required for
                                                             compilation */,
