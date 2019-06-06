@@ -31,7 +31,7 @@ function run() {
             -r 0 \
             --fullSamples \
             --servers=4 \
-            --clients=1 \
+            --clients=2 \
             --useRocksteady \
             --dpdkPort=0 \
             --logLevel=DEBUG \
