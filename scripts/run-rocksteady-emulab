@@ -6,7 +6,7 @@ numRuns=1
 transport=basic+dpdk
 
 # numObjects=300000000
-numObjects=3000000
+numObjects=30000000
 objectSize=100
 
 function run() {
