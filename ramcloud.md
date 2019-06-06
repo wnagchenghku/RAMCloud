@@ -159,3 +159,5 @@ Change `numObjects` to a smaller number since we only have client to fill the da
 --logLevel=DEBUG
 ```
 Then just type `./scripts/run-rocksteady-emulab`
+
+Server2 is the migration destination machine.
