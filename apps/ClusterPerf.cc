@@ -462,7 +462,7 @@ class WorkloadGenerator {
         char value[100];
 
         uint64_t readThreshold = (~0UL / 100) * readPercent;
-        uint64_t opCount = 0;
+        int opCount = 0;
         uint64_t targetMissCount = 0;
         uint64_t readCount = 0;
         uint64_t writeCount = 0;
@@ -494,7 +494,7 @@ class WorkloadGenerator {
                 }
                 startTime = Cycles::rdtsc();
                 opCount = 0;
-                uint64_t checkTime = startTime + Cycles::toSeconds(0.1);
+                uint64_t checkTime = startTime + Cycles::fromSeconds(0.1);
                 running = true;
                 do {
                     rpcsInFlight = 0;
