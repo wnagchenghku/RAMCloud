@@ -779,7 +779,7 @@ def migrateLoaded(name, options, cluster_args, client_args):
                     options.loadPct))
 
         # Turn on timestamps on latency samples.
-        defaultTo(client_args, '--fullSamples', '')
+        # defaultTo(client_args, '--fullSamples', '')
 
         # Generate an offset for the zipfian distribution.
         client_args['--zipfOffset'] = \

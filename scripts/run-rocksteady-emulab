@@ -6,7 +6,7 @@ numRuns=1
 transport=basic+dpdk
 
 # numObjects=300000000
-numObjects=30000
+numObjects=3000000
 objectSize=100
 
 function run() {
@@ -29,13 +29,13 @@ function run() {
             --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=9 --maxNonVolatileBuffers=0 -d' \
             --verbose \
             -r 0 \
-            --fullSamples \
             --servers=4 \
             --clients=2 \
             --useRocksteady \
             --dpdkPort=0 \
-            --logLevel=DEBUG \
-            --superuser
+            --superuser \
+            # --fullSamples \
+            # --logLevel=DEBUG
 
     mkdir -p logs/rocksteady/$tag/
     cp -r logs/latest/* logs/rocksteady/$tag/
