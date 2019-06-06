@@ -488,13 +488,13 @@ class WorkloadGenerator {
         try {
             while (true) {
                 if (running) {
-                    double totalTime = Cycles::toMicroseconds(Cycles::rdtsc() - startTime);
-                    double rate = opCount/(totalTime/1e03/1e03);
+                    double totalTime = Cycles::toSeconds(Cycles::rdtsc() - startTime);
+                    double rate = opCount/totalTime;
                     RAMCLOUD_LOG(NOTICE, "Throughput: %.1f kobjects/sec", rate/1e03);
                 }
                 startTime = Cycles::rdtsc();
                 opCount = 0;
-                uint64_t checkTime = startTime + Cycles::fromMicroseconds(100000); //100ms
+                uint64_t checkTime = startTime + Cycles::toSeconds(0.1);
                 running = true;
                 do {
                     rpcsInFlight = 0;

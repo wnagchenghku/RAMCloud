@@ -549,8 +549,8 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
             totalNumReturnedHashes += numReturnedHashes;
             totalPriorityHashesResponseBuffer += priorityHashesResponseBuffer->size();
             uint64_t elapsedTime = Cycles::rdtsc() - previousPriorityPullTime;
-            if (elapsedTime > Cycles::fromMicroseconds(100000)) { //100ms
-                LOG(NOTICE, "Within %.2fms, priority hashes request returned %u log entries, %u bytes.", Cycles::toMicroseconds(elapsedTime)/1e03, totalNumReturnedHashes, totalPriorityHashesResponseBuffer);
+            if (elapsedTime > Cycles::fromSeconds(0.1)) {
+                LOG(NOTICE, "Within %.2fs, priority hashes request returned %u log entries, %u bytes.", Cycles::toSeconds(elapsedTime), totalNumReturnedHashes, totalPriorityHashesResponseBuffer);
                 totalNumReturnedHashes = 0;
                 totalPriorityHashesResponseBuffer = 0;
                 previousPriorityPullTime = Cycles::rdtsc();
