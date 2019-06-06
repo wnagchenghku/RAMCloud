@@ -550,10 +550,10 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
             totalPriorityHashesResponseBuffer += priorityHashesResponseBuffer->size();
             uint64_t elapsedTime = Cycles::rdtsc() - previousPriorityPullTime;
             if (elapsedTime > Cycles::fromSeconds(1.0)) {
-                previousPriorityPullTime = Cycles::rdtsc();
-                LOG(NOTICE, "Within %.2fs, Priority hashes request returned %u log entries, %u bytes.", Cycles::toSeconds(elapsedTime), totalNumReturnedHashes, totalPriorityHashesResponseBuffer);
+                LOG(NOTICE, "Within %.2fs, priority hashes request returned %u log entries, %u bytes.", Cycles::toSeconds(elapsedTime), totalNumReturnedHashes, totalPriorityHashesResponseBuffer);
                 totalNumReturnedHashes = 0;
                 totalPriorityHashesResponseBuffer = 0;
+                previousPriorityPullTime = Cycles::rdtsc();
             }
             // Issue a replay request to the worker manager.
             priorityReplayRpc.construct(&(partitions[0]) /* Required for
