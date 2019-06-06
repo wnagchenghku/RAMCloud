@@ -539,8 +539,8 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
             priorityHashesResponseBuffer->truncateFront(sizeof32(
                     WireFormat::RocksteadyMigrationPriorityHashes::Response));
 
-            LOG(ll, "Priority hashes request returned %u log entries. Issuing"
-                    " replay.", numReturnedHashes);
+            LOG(ll, "Priority hashes request returned %u log entries, %"PRIu32" bytes. Issuing"
+                    " replay.", numReturnedHashes, priorityHashesResponseBuffer->size());
 
             // Issue a replay request to the worker manager.
             priorityReplayRpc.construct(&(partitions[0]) /* Required for
