@@ -30,7 +30,7 @@ function run() {
             --verbose \
             -r 0 \
             --servers=4 \
-            --clients=2 \
+            --clients=3 \
             --useRocksteady \
             --dpdkPort=0 \
             --superuser \
