@@ -20,7 +20,6 @@ function run() {
     ./scripts/clusterperf.py migrateLoaded \
             -T $transport \
             --workload=YCSB-B \
-            --loadPct=55 \
             --seconds=120 \
             --timeout=3240 \
             --migratePercentage=50 \
@@ -34,6 +33,7 @@ function run() {
             --useRocksteady \
             --dpdkPort=0 \
             --superuser \
+            # --loadPct=55 \
             # --fullSamples \
             # --logLevel=DEBUG
 
