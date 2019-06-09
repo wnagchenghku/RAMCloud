@@ -27,7 +27,7 @@ function run() {
             --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=9 --maxNonVolatileBuffers=0 -d' \
             --verbose \
             --useRocksteady \
-            --zipfSkew=$1
+            --zipfSkew=$1 \
             --dpdkPort=0 \
             --superuser \
             --servers=4 \
