@@ -482,7 +482,7 @@ class WorkloadGenerator {
         Tub<WriteRpc> writeRpcs[NUM_SIZES];
         Buffer results[NUM_SIZES];
         int rpcsInFlight;
-        uint64_t startTime;
+        uint64_t startTime，checkTime;
         bool running = false;
 
         try {
@@ -494,7 +494,7 @@ class WorkloadGenerator {
                 }
                 startTime = Cycles::rdtsc();
                 opCount = 0;
-                uint64_t checkTime = startTime + Cycles::fromSeconds(0.1);
+                checkTime = startTime + Cycles::fromSeconds(0.1);
                 running = true;
                 do {
                     rpcsInFlight = 0;
@@ -4968,112 +4968,130 @@ doWorkload(OpType type)
     const uint64_t targetEndTime =
         experimentStartTicks + Cycles::fromSeconds(seconds);
 
+    bool running = false;
+    uint64_t startTime，checkTime;
+    int objectCount = 0;
+
     // Issue the reads back-to-back, and save the times.
     while (true) {
-        // Generate random key.
-        memset(key, 0, keyLen);
-        string("workload").copy(key, 8);
-        *reinterpret_cast<uint64_t*>(key + 8) =
-                (loadGenerator.generator->nextNumber() + zipfOffset) %
-                numObjects;
+        if (running) {
+            double totalTime = Cycles::toSeconds(Cycles::rdtsc() - startTime);
+            double rate = objectCount/totalTime;
+            RAMCLOUD_LOG(NOTICE, "Throughput: %.1f kobjects/sec", rate/1e03);
+        }
+        startTime = Cycles::rdtsc();
+        objectCount = 0;
+        checkTime = startTime + Cycles::fromSeconds(0.1);
+        running = true;
+        
+        do {
+            // Generate random key.
+            memset(key, 0, keyLen);
+            string("workload").copy(key, 8);
+            *reinterpret_cast<uint64_t*>(key + 8) =
+                    (loadGenerator.generator->nextNumber() + zipfOffset) %
+                    numObjects;
 
-        // Perform Operation
-        if (generateRandom() <= readThreshold) {
-            // Do read
-            uint64_t start = Cycles::rdtsc();
-            cluster->read(dataTable, key, keyLen, &readBuf);
+            // Perform Operation
+            if (generateRandom() <= readThreshold) {
+                // Do read
+                uint64_t start = Cycles::rdtsc();
+                cluster->read(dataTable, key, keyLen, &readBuf);
+                stop = Cycles::rdtsc();
+                if (type == READ_TYPE) {
+                    if (samples.size() < maxSamples)
+                        samples.emplace_back(start, stop, dataTable, 0);
+                }
+                readCount++;
+            } else {
+                // Do write
+                Util::genRandomString(value, loadGenerator.recordSizeB);
+                uint64_t start = Cycles::rdtsc();
+                cluster->write(dataTable, key, keyLen, value,
+                        loadGenerator.recordSizeB);
+                stop = Cycles::rdtsc();
+                if (type == WRITE_TYPE) {
+                    if (samples.size() < maxSamples)
+                        samples.emplace_back(start, stop, dataTable, 1);
+                }
+                writeCount++;
+            }
+            opCount++;
+            objectCount++;
             stop = Cycles::rdtsc();
-            if (type == READ_TYPE) {
-                if (samples.size() < maxSamples)
-                    samples.emplace_back(start, stop, dataTable, 0);
-            }
-            readCount++;
-        } else {
-            // Do write
-            Util::genRandomString(value, loadGenerator.recordSizeB);
-            uint64_t start = Cycles::rdtsc();
-            cluster->write(dataTable, key, keyLen, value,
-                    loadGenerator.recordSizeB);
-            stop = Cycles::rdtsc();
-            if (type == WRITE_TYPE) {
-                if (samples.size() < maxSamples)
-                    samples.emplace_back(start, stop, dataTable, 1);
-            }
-            writeCount++;
-        }
-        opCount++;
-        stop = Cycles::rdtsc();
 
-        // Stick a migration in the middle of the benchmark, if requested.
-        if (migratePercentage &&
-            !migrationCycles &&
-            stop > experimentStartTicks + oneSecond * 5)
-        {
-            if (useRocksteady && !rocksteadyMigration) {
-                RAMCLOUD_LOG(NOTICE, "Starting migration\n");
-                uint64_t endKeyHash = ~0lu;
-                if (migratePercentage < 100)
-                    endKeyHash = endKeyHash / 100 * migratePercentage;
-                rocksteadyMigration.construct(cluster,
-                                    dataTable,
-                                    0,
-                                    endKeyHash,
-                                    ServerId(1, 0),
-                                    ServerId(2, 0));
-                migrationStartCycles = Cycles::rdtsc();
-            } else if (useRocksteady && rocksteadyMigration->isReady()) {
-                rocksteadyMigration->wait();
-                migrationCycles = Cycles::rdtsc() - migrationStartCycles;
-                double migrationS = Cycles::toSeconds(migrationCycles);
-                RAMCLOUD_LOG(NOTICE, "Migration took: %f s", migrationS);
-                rocksteadyMigration.destroy();
+            // Stick a migration in the middle of the benchmark, if requested.
+            if (migratePercentage &&
+                !migrationCycles &&
+                stop > experimentStartTicks + oneSecond * 5)
+            {
+                if (useRocksteady && !rocksteadyMigration) {
+                    RAMCLOUD_LOG(NOTICE, "Starting migration\n");
+                    uint64_t endKeyHash = ~0lu;
+                    if (migratePercentage < 100)
+                        endKeyHash = endKeyHash / 100 * migratePercentage;
+                    rocksteadyMigration.construct(cluster,
+                                        dataTable,
+                                        0,
+                                        endKeyHash,
+                                        ServerId(1, 0),
+                                        ServerId(2, 0));
+                    migrationStartCycles = Cycles::rdtsc();
+                } else if (useRocksteady && rocksteadyMigration->isReady()) {
+                    rocksteadyMigration->wait();
+                    migrationCycles = Cycles::rdtsc() - migrationStartCycles;
+                    double migrationS = Cycles::toSeconds(migrationCycles);
+                    RAMCLOUD_LOG(NOTICE, "Migration took: %f s", migrationS);
+                    rocksteadyMigration.destroy();
+                }
+
+                if (!useRocksteady && !migration) {
+                    RAMCLOUD_LOG(NOTICE, "Starting migration\n");
+                    uint64_t endKeyHash = ~0lu;
+                    if (migratePercentage < 100)
+                        endKeyHash = endKeyHash / 100 * migratePercentage;
+                    migration.construct(cluster,
+                                        dataTable,
+                                        0,
+                                        endKeyHash,
+                                        ServerId(2, 0));
+                    migrationStartCycles = Cycles::rdtsc();
+                } else if (!useRocksteady && migration->isReady()) {
+                    migration->wait();
+                    migrationCycles = Cycles::rdtsc() - migrationStartCycles;
+                    double migrationS = Cycles::toSeconds(migrationCycles);
+                    RAMCLOUD_LOG(NOTICE, "Migration took: %f s", migrationS);
+                    migration.destroy();
+                }
             }
 
-            if (!useRocksteady && !migration) {
-                RAMCLOUD_LOG(NOTICE, "Starting migration\n");
-                uint64_t endKeyHash = ~0lu;
-                if (migratePercentage < 100)
-                    endKeyHash = endKeyHash / 100 * migratePercentage;
-                migration.construct(cluster,
-                                    dataTable,
-                                    0,
-                                    endKeyHash,
-                                    ServerId(2, 0));
-                migrationStartCycles = Cycles::rdtsc();
-            } else if (!useRocksteady && migration->isReady()) {
-                migration->wait();
-                migrationCycles = Cycles::rdtsc() - migrationStartCycles;
-                double migrationS = Cycles::toSeconds(migrationCycles);
-                RAMCLOUD_LOG(NOTICE, "Migration took: %f s", migrationS);
-                migration.destroy();
-            }
-        }
+            // throttle
+            uint64_t now = stop;
+            if (targetNSPO > 0) {
+                nextStop = start +
+                           Cycles::fromNanoseconds(
+                                (opCount * targetNSPO) +
+                                (generateRandom() % targetNSPO) -
+                                (targetNSPO / 2));
 
-        // throttle
-        uint64_t now = stop;
-        if (targetNSPO > 0) {
-            nextStop = start +
-                       Cycles::fromNanoseconds(
-                            (opCount * targetNSPO) +
-                            (generateRandom() % targetNSPO) -
-                            (targetNSPO / 2));
-
-            if (now > nextStop) {
-                targetMissCount++;
+                if (now > nextStop) {
+                    targetMissCount++;
+                }
+                while (now < nextStop) {
+                    now = Cycles::rdtsc();
+                }
             }
-            while (now < nextStop) {
-                now = Cycles::rdtsc();
-            }
-        }
 
 #ifndef ROCKSTEADY_NO_PRIORITY_HASHES
-        if (stats.size() <= ((now - experimentStartTicks) /
-            Cycles::fromMicroseconds(100 * 1000))) {
-            stats.emplace_back();
-            cluster->serverControlAll(
-                WireFormat::ControlOp::GET_PERF_STATS, NULL, 0, &stats.back());
-        }
+            if (stats.size() <= ((now - experimentStartTicks) /
+                Cycles::fromMicroseconds(100 * 1000))) {
+                stats.emplace_back();
+                cluster->serverControlAll(
+                    WireFormat::ControlOp::GET_PERF_STATS, NULL, 0, &stats.back());
+            }
 #endif
+
+        } while (Cycles::rdtsc() < checkTime)
 
         if (now > targetEndTime)
             break;
