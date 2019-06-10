@@ -482,7 +482,7 @@ class WorkloadGenerator {
         Tub<WriteRpc> writeRpcs[NUM_SIZES];
         Buffer results[NUM_SIZES];
         int rpcsInFlight;
-        uint64_t startTime，checkTime;
+        uint64_t startTime, checkTime;
         bool running = false;
 
         try {
@@ -4969,7 +4969,7 @@ doWorkload(OpType type)
         experimentStartTicks + Cycles::fromSeconds(seconds);
 
     bool running = false;
-    uint64_t startTime，checkTime;
+    uint64_t startTime, checkTime;
     int objectCount = 0;
 
     // Issue the reads back-to-back, and save the times.
