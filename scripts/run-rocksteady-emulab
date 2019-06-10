@@ -22,7 +22,6 @@ function run() {
             --workload=YCSB-B \
             --seconds=120 \
             --timeout=3240 \
-            --migratePercentage=50 \
             --size=$objectSize \
             --numObjects=$numObjects \
             --masterArgs='--totalMasterMemory=57344 --segmentFrames=46080 --maxCores=9 --maxNonVolatileBuffers=0 -d' \
@@ -33,6 +32,8 @@ function run() {
             --useRocksteady \
             --dpdkPort=0 \
             --superuser \
+            --zipfSkew=0 \
+            --migratePercentage=99 \
             # --loadPct=55 \
             # --fullSamples \
             # --logLevel=DEBUG
