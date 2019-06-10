@@ -5093,7 +5093,7 @@ doWorkload(OpType type)
 
         } while (Cycles::rdtsc() < checkTime);
 
-        if (now > targetEndTime)
+        if (Cycles::rdtsc() > targetEndTime)
             break;
     }
 
