@@ -5067,20 +5067,20 @@ doWorkload(OpType type)
 
             // throttle
             uint64_t now = stop;
-            if (targetNSPO > 0) {
-                nextStop = start +
-                           Cycles::fromNanoseconds(
-                                (opCount * targetNSPO) +
-                                (generateRandom() % targetNSPO) -
-                                (targetNSPO / 2));
+            // if (targetNSPO > 0) {
+            //     nextStop = start +
+            //                Cycles::fromNanoseconds(
+            //                     (opCount * targetNSPO) +
+            //                     (generateRandom() % targetNSPO) -
+            //                     (targetNSPO / 2));
 
-                if (now > nextStop) {
-                    targetMissCount++;
-                }
-                while (now < nextStop) {
-                    now = Cycles::rdtsc();
-                }
-            }
+            //     if (now > nextStop) {
+            //         targetMissCount++;
+            //     }
+            //     while (now < nextStop) {
+            //         now = Cycles::rdtsc();
+            //     }
+            // }
 
 #ifndef ROCKSTEADY_NO_PRIORITY_HASHES
             if (stats.size() <= ((now - experimentStartTicks) /
