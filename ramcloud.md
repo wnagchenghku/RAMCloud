@@ -162,4 +162,4 @@ Then just type `./scripts/run-rocksteady-emulab`
 
 Server2 is the migration destination machine.
 
-When migratePercentage=50, the throughput is the sum of the requests on migrated data AND non-migrated data. For non-migrated data, both Fulva and Rocksteady do not add extra bandwidth, so we should ignore that part. To make calculation simple, we set migratePercentage=99.
+When migratePercentage=50, the throughput is the sum of requests on migrated data AND non-migrated data. For non-migrated data, both Fulva and Rocksteady do not add extra bandwidth (the non-migrated data of course lives on the source machine), so we should ignore that part. To make calculation simple, we set migratePercentage=99.
