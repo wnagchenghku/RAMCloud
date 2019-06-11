@@ -139,38 +139,40 @@ class ZipfianGenerator {
 };
 
 
-int compareInt(const void * a, const void * b)
+int compare(const void * a, const void * b)
 {
   // return (*(int*)a - *(int*)b); // ascending order
-  return (*(int*)b - *(int*)a); // descending order
+  return (*(uint64_t*)b - *(uint64_t*)a); // descending order
 }
 
 int main(int argc, char const *argv[])
 {
-	int numKeys = 300000000, i, seconds = 20;
+  int numKeys = 300000000, i, seconds = 20;
+  double zipfSkew = 0.99;
 
-	ZipfianGenerator generator(numKeys);
+  ZipfianGenerator generator(numKeys, zipfSkew);
 
-  int *histogram = static_cast<int *>(Memory::xmalloc(numKeys * sizeof(histogram[0])));
+  uint64_t *histogram = static_cast<uint64_t *>(Memory::xmalloc(numKeys * sizeof(histogram[0])));
   memset(histogram, 0, numKeys * sizeof(histogram[0]));
 
   struct timeval start, end;
-
+  uint64_t opCount = 0;
   gettimeofday(&start, NULL);
   do {
-		histogram[generator.nextNumber()]++;
+  	histogram[generator.nextNumber()]++;
     gettimeofday(&end, NULL);
-	} while ((end.tv_sec - start.tv_sec) < seconds);
+    opCount++;
+  } while ((end.tv_sec - start.tv_sec) < seconds);
 
-	qsort(histogram, numKeys, sizeof(histogram[0]), compareInt);
+  qsort(histogram, numKeys, sizeof(histogram[0]), compare);
 
-	ofstream zipf_data;
-	zipf_data.open("zipf.data");
-	for (i = 0; i < 50; ++i) {
-		zipf_data << histogram[i] << endl;
-	}
-	zipf_data.close();
+  ofstream zipf_data;
+  zipf_data.open("zipf.dat");
+  for (i = 0; i < 10000; ++i) {
+  	zipf_data << i << " " << ((double)histogram[i] / (double)opCount) << endl;
+  }
+  zipf_data.close();
 
-	free(histogram);
-	return 0;
+  free(histogram);
+  return 0;
 }
