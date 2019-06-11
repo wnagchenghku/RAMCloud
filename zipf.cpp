@@ -14,10 +14,25 @@
 #include <assert.h>
 #include <unistd.h>
 #include <cstring>
-
+#include <time.h>
+#include <sys/time.h>
 #include <fstream>
 using std::endl;
 using std::ofstream;
+
+namespace Memory {
+void*
+xmalloc(size_t len)
+{
+    void *p = malloc(len > 0 ? len : 1);
+    if (p == NULL) {
+        fprintf(stderr, "malloc(%lu) failed\n", len);
+        exit(1);
+    }
+
+    return p;
+}
+} // namespace Memory
 
 uint64_t
 _generateRandom()
@@ -35,13 +50,15 @@ _generateRandom()
 
     if (statebuf == NULL) {
         int fd = open("/dev/urandom", O_RDONLY);
-        // if (fd < 0)
-        //     throw FatalError(HERE, "Couldn't open /dev/urandom", errno);
+        if (fd < 0) {
+             fprintf(stderr, "Couldn't open /dev/urandom");
+             exit(1);
+        }
         unsigned int seed;
         ssize_t bytesRead = read(fd, &seed, sizeof(seed));
         close(fd);
         assert(bytesRead == sizeof(seed));
-        statebuf = static_cast<char*>(malloc(STATE_BYTES));
+        statebuf = static_cast<char*>(Memory::xmalloc(STATE_BYTES));
         initstate_r(seed, statebuf, STATE_BYTES, &buf);
     }
 
@@ -56,6 +73,12 @@ _generateRandom()
                   ((uint64_t(mid) & 0x7FFFFFFF) << 2)  | // NOLINT
                   (uint64_t(lo) & 0x00000003)); // NOLINT
     return r;
+}
+
+static inline uint64_t
+generateRandom()
+{
+    return _generateRandom();
 }
 
 class ZipfianGenerator {
@@ -84,7 +107,7 @@ class ZipfianGenerator {
      */
     uint64_t nextNumber()
     {
-        double u = static_cast<double>(_generateRandom()) /
+        double u = static_cast<double>(generateRandom()) /
                    static_cast<double>(~0UL);
         double uz = u * zetan;
         if (uz < 1)
@@ -118,21 +141,27 @@ class ZipfianGenerator {
 
 int compareInt(const void * a, const void * b)
 {
-  return (*(int*)b - *(int*)a);
+  // return (*(int*)a - *(int*)b); // ascending order
+  return (*(int*)b - *(int*)a); // descending order
 }
 
 int main(int argc, char const *argv[])
 {
-	int numKeys = 2000, i, count = 100000000;
+	int numKeys = 300000000, i, seconds = 20;
 
 	ZipfianGenerator generator(numKeys);
 
-    int *histogram = static_cast<int *>(malloc(numKeys * sizeof(histogram[0])));
-    memset(histogram, 0, numKeys * sizeof(histogram[0]));
+  int *histogram = static_cast<int *>(Memory::xmalloc(numKeys * sizeof(histogram[0])));
+  memset(histogram, 0, numKeys * sizeof(histogram[0]));
 
-	for (i = 0; i < count; ++i) {
+  struct timeval start, end;
+
+  gettimeofday(&start, NULL);
+  do {
 		histogram[generator.nextNumber()]++;
-	}
+    gettimeofday(&end, NULL);
+	} while ((end.tv_sec - start.tv_sec) < seconds);
+
 	qsort(histogram, numKeys, sizeof(histogram[0]), compareInt);
 
 	ofstream zipf_data;
