@@ -1267,6 +1267,9 @@ struct Read {
         uint32_t length;              // Length of the object's value in bytes.
                                       // The actual bytes of the object follow
                                       // immediately after this header.
+
+        uint64_t migrationPartitionsProgress[MAX_NUM_PARTITIONS];
+        bool priorityPullDone;
     } __attribute__((packed));
 };
 

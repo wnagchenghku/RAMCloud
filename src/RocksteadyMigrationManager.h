@@ -196,6 +196,8 @@ class RocksteadyMigration {
 
     std::vector<uint64_t> waitingPriorityHashes;
 
+    std::unordered_set<uint64_t> finishedPriorityHashes;
+
     std::vector<uint64_t> inProgressPriorityHashes;
 
     Tub<Buffer> priorityHashesRequestBuffer;

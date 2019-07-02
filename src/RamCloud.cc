@@ -2018,6 +2018,27 @@ ReadRpc::ReadRpc(RamCloud* ramcloud, uint64_t tableId,
     send();
 }
 
+ReadRpc::migrationReadRpc(RamCloud* ramcloud, uint64_t tableId,
+        const void* key, uint16_t keyLength, Buffer* value,
+        const RejectRules* rejectRules)
+    : ObjectRpcWrapper(ramcloud->clientContext, tableId, key, keyLength,
+            sizeof(WireFormat::Read::Response), value)
+{
+    value->reset();
+    WireFormat::Read::Request* reqHdr(allocHeader<WireFormat::Read>());
+    reqHdr->tableId = tableId;
+    reqHdr->keyLength = keyLength;
+    reqHdr->rejectRules = rejectRules ? *rejectRules : defaultRejectRules;
+    request.append(key, keyLength);
+
+    KeyHash hash = Key(tableId, key, keyLength).getHash();
+    if (lookupRegularPullProgrss(hash)) {
+    } else if lookupPriorityPullProgrss(hash) {
+    }
+
+    send();
+}
+
 /**
  * Wait for the RPC to complete, and return the same results as
  * #RamCloud::read.
@@ -2041,6 +2062,56 @@ ReadRpc::wait(uint64_t* version)
     // but the object data.
     response->truncateFront(sizeof(*respHdr));
     assert(respHdr->length == response->size());
+}
+
+void
+ReadRpc::migrationWait(RamCloud* ramcloud, uint64_t tableId,
+        const void* key, uint16_t keyLength, uint64_t* version)
+{
+    waitInternal(context->dispatch);
+    const WireFormat::Read::Response* respHdr(
+            getResponseHeader<WireFormat::Read>());
+    if (version != NULL)
+        *version = respHdr->version;
+
+    if (respHdr->common.status != STATUS_OK)
+        ClientException::throwException(HERE, respHdr->common.status);
+
+    // Truncate the response Buffer so that it consists of nothing
+    // but the object data.
+    response->truncateFront(sizeof(*respHdr));
+    assert(respHdr->length == response->size());
+
+    for (int i = 0; i < MAX_NUM_PARTITIONS; ++i) {
+        ramcloud->partitions[i].currentHTBucket = respHdr->migrationPartitionsProgress[i];
+    }
+    if (respHdr->priorityPullDone == true) {
+        ramcloud->finishedPriorityHashes.insert(Key(tableId, key, keyLength).getHash());
+    }
+    for (auto it = ramcloud->finishedPriorityHashes.begin();
+        it != ramcloud->finishedPriorityHashes.end(); it++) {
+        if (lookupRegularPullProgrss(*it)) {
+            ramcloud->finishedPriorityHashes.erase(*it);
+        }
+    }
+}
+
+bool
+Ramcloud::lookupRegularPullProgrss(uint64_t hash) {
+    for (int i = 0; i < MAX_NUM_PARTITIONS; ++i) {
+        if (ramcloud->partitions[i].startHTBucket <= hash && hash < ramcloud->partitions[i].currentHTBucket) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool
+Ramcloud::lookupPriorityPullProgrss(uint64_t hash) {
+    if (ramcloud->finishedPriorityHashes.find(hash) != ramcloud->finishedPriorityHashes.end()) {
+        return true;
+    }
+    return false;
 }
 
 /**

@@ -478,12 +478,20 @@ class WorkloadGenerator {
         uint64_t stop = 0;
 
 #define NUM_SIZES 5
-        Tub<ReadRpc> readRpcs[NUM_SIZES]; // When you initially create a Tub its object is uninitialized (and should not be used).
+        Tub<migrationReadRpc> readRpcs[NUM_SIZES]; // When you initially create a Tub its object is uninitialized (and should not be used).
         Tub<WriteRpc> writeRpcs[NUM_SIZES];
         Buffer results[NUM_SIZES];
         int rpcsInFlight;
         uint64_t startTime, checkTime;
         bool running = false;
+
+        uint64_t numHTBuckets;
+        for (int i = 0; i < MAX_NUM_PARTITIONS; ++i) {
+            uint64_t partitionStartHTBucket = i * (numHTBuckets / MAX_NUM_PARTITIONS);
+            uint64_t partitionEndHTBucket = ((i + 1) * (numHTBuckets / MAX_NUM_PARTITIONS)) - 1;
+
+            ramcloud->partitions[i].construct(partitionStartHTBucket, partitionEndHTBucket);
+        }
 
         try {
             while (true) {
@@ -544,7 +552,7 @@ class WorkloadGenerator {
                     for (int i = 0; i < NUM_SIZES; ++i) {
                         if (readRpcs[i]) {
                             if (readRpcs[i]->isReady()) {
-                                readRpcs[i]->wait();
+                                readRpcs[i]->migrationWait();
                                 opCount++;
                                 readRpcs[i].destroy();
                             }

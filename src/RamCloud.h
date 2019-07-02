@@ -203,6 +203,28 @@ class RamCloud {
     RpcTracker *rpcTracker;
     ClientTransactionManager *transactionManager;
 
+    class migrationPartitionsProgrss {
+      public:
+        explicit migrationPartitionsProgrss(uint64_t startHTBucket,
+                uint64_t endHTBucket)
+            : startHTBucket(startHTBucket)
+            , endHTBucket(endHTBucket)
+            , currentHTBucket(startHTBucket)
+        {
+        }
+
+        ~migrationPartitionsProgrss() {}
+
+      PRIVATE:
+        const uint64_t startHTBucket;
+
+        const uint64_t endHTBucket;
+
+        uint64_t currentHTBucket;
+    };
+
+    Tub<migrationPartitionsProgrss> partitions[MAX_NUM_PARTITIONS];
+    std::unorded_set<uint64_t> finishedPriorityHashes;
   private:
     DISALLOW_COPY_AND_ASSIGN(RamCloud);
 };

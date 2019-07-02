@@ -328,6 +328,25 @@ WorkerManager::poll()
                     reinterpret_cast<uint64_t>(rpc),
                     rpc->replyPayload.size());
 #endif
+            if (strcmp(WireFormat::opcodeSymbol(&rpc->requestPayload), "READ") == 0) {
+                const WireFormat::READ::Response* respHdr = rpc->replyPayload.getStart<WireFormat::READ::Response>();
+                if (respHdr->common.status == STATUS_OK) {
+                    const WireFormat::Read::Request* reqHdr = rpc->requestPayload.getStart<WireFormat::READ::Request>();
+                    uint32_t reqOffset = sizeof32(*reqHdr);
+                    const void* stringKey = rpc->requestPayload->getRange(reqOffset, reqHdr->keyLength);
+                    Key key(reqHdr->tableId, stringKey, reqHdr->keyLength);
+
+                    for (int i = 0; i < MAX_NUM_PARTITIONS; ++i) {
+                        respHdr->migrationPartitionsProgress[i] = context->rocksteadyMigrationManager->updateRegularPullProgress(i);
+                    }
+                    
+                    respHdr->priorityPullDone = false;
+                    if (context->rocksteadyMigrationManager->lookupPriorityHashes(key.getHash())) {
+                        respHdr->priorityPullDone = true;                   
+                    }
+                }
+            }
+
             rpc->sendReply();
             timeTrace("sent reply for opcode %d, thread %d",
                     worker->threadId, worker->opcode);

@@ -170,6 +170,25 @@ RocksteadyMigrationManager::requestPriorityHash(uint64_t tableId,
     DIE("Received a priority hash for a tablet that is not under migration!");
 }
 
+bool
+RocksteadyMigrationManager::lookupPriorityHashes(uint64_t hash)
+{
+    for (auto& migration : migrationsInProgress) {
+        if (migration->finishedPriorityHashes.find(hash) != migration->finishedPriorityHashes.end()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint64_t
+RocksteadyMigrationManager::updateRegularPullProgress(int i)
+{
+    for (auto& migration : migrationsInProgress) {
+        return migration->partitions[i].currentHTBucket;
+    }
+}
+
 RocksteadyMigration::RocksteadyMigration(Context* context,
                         string localLocator, ServerId sourceServerId,
                         uint64_t tableId, uint64_t startKeyHash,
@@ -190,6 +209,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
     , takeOwnershipRpc()
     , priorityLock("priorityLock")
     , waitingPriorityHashes()
+    , finishedPriorityHashes()
     , inProgressPriorityHashes()
     , priorityHashesRequestBuffer()
     , priorityHashesResponseBuffer()
@@ -227,6 +247,7 @@ RocksteadyMigration::RocksteadyMigration(Context* context,
 
     // Reserve space for the priority hashes.
     waitingPriorityHashes.reserve(MAX_PRIORITY_HASHES * 4);
+    finishedPriorityHashes.reserve(MAX_PRIORITY_HASHES * 4);
     inProgressPriorityHashes.reserve(MAX_PRIORITY_HASHES * 4);
 
     // To begin with, all pull rpcs are free.
@@ -578,6 +599,12 @@ RocksteadyMigration::pullAndReplay_priorityHashes()
     if (priorityReplayRpc) {
         if (priorityReplayRpc->isReady()) {
             // If the replay completed, clear out inProgressPriorityHashes.
+
+            for (auto hash = inProgressPriorityHashes.begin();
+                hash != inProgressPriorityHashes.end(); hash++) {
+                finishedPriorityHashes.insert(*hash);
+            }
+
             inProgressPriorityHashes.clear();
 
             LOG(ll, "Priority replay completed.");
@@ -650,6 +677,13 @@ RocksteadyMigration::pullAndReplay_reapPullRpcs()
             (*partition)->currentHTBucket = nextHTBucket;
             (*partition)->currentHTBucketEntry = nextHTBucketEntry;
             (*partition)->totalPulledBytes += numReturnedBytes;
+
+            for (auto it = finishedPriorityHashes.begin();
+                it != finishedPriorityHashes.end(); it++) {
+                if ((*partition)->startHTBucket <= *it && *it <= ((*partition)->currentHTBucket - 1)) {
+                    finishedPriorityHashes.erase(*it);
+                }
+            }
 
             LOG(ll, "Pull request migrated %u Bytes in partition[%lu,"
                     " %lu] (migrating tablet[0x%lx, 0x%lx] in table %lu)."
