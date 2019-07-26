@@ -1,3 +1,4 @@
+/* g++ zipf.cpp -std=c++11 */
 #include <stdlib.h>
 #include <algorithm>
 #include <iostream>
@@ -166,12 +167,20 @@ int main(int argc, char const *argv[])
 
     qsort(histogram, numKeys, sizeof(histogram[0]), compare);
 
-    ofstream zipf_data;
-    zipf_data.open("zipf.dat");
-    for (i = 0; i < 10000; ++i) {
-      zipf_data << i << " " << ((double)histogram[i] / (double)opCount) << endl;
+    //ofstream zipf_data;
+    //zipf_data.open("zipf.dat");
+    //for (i = 0; i < 10000; ++i) {
+    //  zipf_data << i << " " << ((double)histogram[i] / (double)opCount) << endl;
+    //}
+    //zipf_data.close();
+
+    uint64_t sum = 0;
+    int percent = 20;
+    for (i = 0; i < numKeys * percent / 100; ++i) {
+      sum += histogram[i];
     }
-    zipf_data.close();
+
+    std::cout << "top " << percent << "% occupies " <<  (double)sum / (double)opCount << " accesses." << std::endl;
 
     free(histogram);
     return 0;
